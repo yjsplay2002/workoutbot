@@ -6,6 +6,7 @@ from telegram.ext import ContextTypes
 
 from bot.analyzer import (
     analyze_workout,
+    classify_workout,
     extract_from_image,
     extract_from_text,
     extract_kcal,
@@ -376,11 +377,13 @@ async def _process_album_after_delay(
                 merged = existing["structured_md"] + "\n\n" + combined
                 analysis = await analyze_workout(merged, weight, format_history_summary(history))
                 kcal = extract_kcal(analysis)
-                merge_record(existing["id"], merged, analysis, kcal)
+                category = classify_workout(merged)
+                merge_record(existing["id"], merged, analysis, kcal, category=category)
             else:
                 analysis = await analyze_workout(combined, weight, format_history_summary(history))
                 kcal = extract_kcal(analysis)
-                save_record(chat_id, user.id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date)
+                category = classify_workout(combined)
+                save_record(chat_id, user.id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
             return date, analysis
 
         analysis_tasks = [analyze_one(d, dl) for d, dl in sorted(date_groups.items())]
@@ -435,7 +438,8 @@ async def _process_single_photo(
             structured, weight, format_history_summary(history)
         )
         kcal = extract_kcal(analysis)
-        save_record(chat_id, user.id, "[image]", structured, analysis, kcal)
+        category = classify_workout(structured)
+        save_record(chat_id, user.id, "[image]", structured, analysis, kcal, category=category)
         await status_msg.edit_text(analysis, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Photo analysis error: {e}")
@@ -488,7 +492,8 @@ async def _process_text_workout(
                 merged_structured, weight, format_history_summary(history)
             )
             kcal = extract_kcal(analysis)
-            merge_record(existing["id"], merged_structured, analysis, kcal)
+            category = classify_workout(merged_structured)
+            merge_record(existing["id"], merged_structured, analysis, kcal, category=category)
             await status_msg.edit_text(
                 f"📋 오늘 기록에 병합 완료!\n\n{analysis}",
                 parse_mode="HTML",
@@ -498,7 +503,8 @@ async def _process_text_workout(
                 structured, weight, format_history_summary(history)
             )
             kcal = extract_kcal(analysis)
-            save_record(chat_id, user.id, text, structured, analysis, kcal)
+            category = classify_workout(structured)
+            save_record(chat_id, user.id, text, structured, analysis, kcal, category=category)
             await status_msg.edit_text(analysis, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Text analysis error: {e}")

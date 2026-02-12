@@ -177,6 +177,94 @@ def group_by_date(extractions: list[str]) -> dict[str, list[str]]:
     return groups
 
 
+CATEGORY_KEYWORDS = {
+    "upper": [
+        "bench", "press", "row", "curl", "pulldown", "pullup", "pull-up", "pushup", "push-up",
+        "fly", "raise", "tricep", "bicep", "chest", "shoulder", "lat", "delt",
+        "벤치", "프레스", "로우", "컬", "풀다운", "풀업", "푸쉬업", "푸시업",
+        "플라이", "레이즈", "삼두", "이두", "가슴", "어깨", "등",
+        "체스트", "숄더", "랫", "백",
+    ],
+    "lower": [
+        "squat", "deadlift", "leg", "lunge", "calf", "hip", "glute", "hack",
+        "스쿼트", "데드리프트", "레그", "런지", "종아리", "힙", "글루트", "핵",
+        "하체", "대퇴", "허벅지",
+    ],
+    "core": [
+        "plank", "pallof", "crunch", "ab wheel", "ab rollout", "back extension",
+        "dead bug", "sit-up", "situp",
+        "플랭크", "크런치", "복근", "코어", "데드버그",
+    ],
+    "cardio": [
+        "run", "running", "bike", "cycling", "rowing machine", "treadmill", "cardio",
+        "elliptical", "stairmaster", "jogging",
+        "러닝", "달리기", "자전거", "트레드밀", "유산소", "조깅",
+    ],
+}
+
+CATEGORY_COLORS = {
+    "상체": "#3498db",
+    "하체": "#e74c3c",
+    "코어": "#f1c40f",
+    "유산소": "#2ecc71",
+    "전신": "#9b59b6",
+}
+
+
+def classify_workout(structured_md: str) -> str:
+    """Classify workout into categories based on keywords."""
+    if not structured_md:
+        return "기타"
+    text_lower = structured_md.lower()
+
+    found = set()
+    for category, keywords in CATEGORY_KEYWORDS.items():
+        for kw in keywords:
+            if kw in text_lower:
+                found.add(category)
+                break
+
+    if not found:
+        return "기타"
+
+    # Check for "extension" separately — could be leg extension (lower) or back extension (core)
+    if "extension" in text_lower and "leg" in text_lower:
+        found.add("lower")
+    if "back extension" in text_lower:
+        found.add("core")
+        found.discard("upper")  # back extension is core, not upper
+
+    labels = {
+        "upper": "상체",
+        "lower": "하체",
+        "core": "코어",
+        "cardio": "유산소",
+    }
+
+    if "upper" in found and "lower" in found:
+        parts = ["전신"]
+        if "core" in found:
+            parts.append("코어")
+        if "cardio" in found:
+            parts.append("유산소")
+        return " + ".join(parts) if len(parts) > 1 else parts[0]
+
+    result = []
+    for key in ["upper", "lower", "core", "cardio"]:
+        if key in found:
+            result.append(labels[key])
+
+    return " + ".join(result) if result else "기타"
+
+
+def get_category_color(category: str) -> str:
+    """Get the primary color for a workout category."""
+    for key, color in CATEGORY_COLORS.items():
+        if key in category:
+            return color
+    return "#888888"
+
+
 def extract_kcal(analysis: str) -> Optional[float]:
     """Try to extract kcal number from analysis text."""
     patterns = [

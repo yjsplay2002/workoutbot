@@ -8,6 +8,50 @@
   <div class="stat-card"><div class="label">평균 칼로리</div><div class="value">{{ avg_kcal }} kcal</div></div>
   <div class="stat-card"><div class="label">총 소모 칼로리</div><div class="value">{{ total_kcal }} kcal</div></div>
 </div>
+
+<h2>📅 운동 캘린더</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:32px;overflow-x:auto">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+    <a href="/?year={{ prev_year }}&month={{ prev_month }}" style="padding:8px 16px;background:var(--card2);border-radius:8px;color:var(--text);text-decoration:none;font-size:1.1em">←</a>
+    <span style="font-size:1.2em;font-weight:700;color:var(--accent2)">{{ cal_year }}년 {{ cal_month }}월</span>
+    <a href="/?year={{ next_year }}&month={{ next_month }}" style="padding:8px 16px;background:var(--card2);border-radius:8px;color:var(--text);text-decoration:none;font-size:1.1em">→</a>
+  </div>
+  <table style="width:100%;border-collapse:collapse;table-layout:fixed">
+    <thead>
+      <tr>
+        {% for d in ["월","화","수","목","금","토","일"] %}
+        <th style="padding:8px 2px;color:var(--text2);font-size:.85em;font-weight:600;text-align:center;{% if d == '토' %}color:#5b9bd5{% elif d == '일' %}color:#e74c3c{% endif %}">{{ d }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for week in cal_weeks %}
+      <tr>
+        {% for day in week %}
+        <td style="vertical-align:top;padding:4px 2px;height:72px;border-top:1px solid var(--border);{% if day == today_day %}background:rgba(108,92,231,0.1){% endif %}">
+          {% if day %}
+          <div style="font-size:.8em;color:{% if loop.index == 6 %}#5b9bd5{% elif loop.index == 7 %}#e74c3c{% else %}var(--text2){% endif %};margin-bottom:2px;text-align:center;font-weight:{% if day == today_day %}700{% else %}400{% endif %}">{{ day }}</div>
+          {% if day in cal_data %}
+            {% for r in cal_data[day][:3] %}
+            <a href="/records/{{ r.id }}" style="text-decoration:none;display:block">
+              <div style="font-size:.65em;padding:1px 3px;margin:1px 0;border-radius:4px;text-align:center;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:{{ get_category_color(r.category or '기타') }}{% if user.is_trainer and r.name %};opacity:0.9{% endif %}">
+                {% if user.is_trainer and r.name %}{{ r.name|truncate(4,True,'') }} {% endif %}{{ r.category or '기타' }}
+              </div>
+            </a>
+            {% endfor %}
+            {% if cal_data[day]|length > 3 %}
+            <div style="font-size:.6em;text-align:center;color:var(--text2)">+{{ cal_data[day]|length - 3 }}</div>
+            {% endif %}
+          {% endif %}
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
 <h2>🕐 최근 기록</h2>
 {% if recent %}
 {% for r in recent %}
@@ -16,6 +60,7 @@
   <div class="meta">
     <span class="date">📅 {{ r.date }}</span>
     <span class="user"><a href="/user/{{ r.user_id }}">{{ r.name or ('사용자 ' ~ r.user_id) }}</a></span>
+    {% if r.category %}<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:.75em;font-weight:600;color:#fff;background:{{ get_category_color(r.category) }}">{{ r.category }}</span>{% endif %}
     {% if r.estimated_kcal %}
     <span class="kcal {% if r.estimated_kcal < 200 %}kcal-low{% elif r.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ r.estimated_kcal|round(0)|int }} kcal</span>
     {% endif %}

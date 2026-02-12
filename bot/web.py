@@ -1,9 +1,11 @@
 """FastAPI web dashboard for workout bot with Telegram auth."""
 
+import calendar as cal_module
 import hashlib
 import hmac
 import os
 import sqlite3
+from datetime import datetime, date
 from typing import Optional
 
 import httpx
@@ -15,14 +17,19 @@ from markupsafe import Markup
 
 from bot.database import (
     delete_record,
+    get_all_records_by_month_for_trainer,
     get_all_records_for_trainer,
     get_group_members,
+    get_records_by_month,
     get_records_for_user,
+    get_records_without_category,
     get_trainer_groups,
     get_user_groups,
     is_user_trainer,
+    update_record_category,
     update_record_date,
 )
+from bot.analyzer import classify_workout, get_category_color
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join("data", "workout.db"))
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -56,6 +63,16 @@ async def _fetch_bot_username():
                 bot_username = data["result"]["username"]
     except Exception:
         bot_username = "unknown_bot"
+
+    # Backfill categories for existing records
+    try:
+        records = get_records_without_category()
+        for r in records:
+            if r.get("structured_md"):
+                cat = classify_workout(r["structured_md"])
+                update_record_category(r["id"], cat)
+    except Exception:
+        pass
 
 
 def get_conn() -> sqlite3.Connection:
@@ -189,13 +206,39 @@ async def policy_page(request: Request):
 
 # ── HTML Pages ───────────────────────────────────────────────
 
+def _build_calendar_data(records: list[dict], year: int, month: int) -> dict:
+    """Build calendar data structure from records. Returns {day: [{record}, ...]}."""
+    cal_data = {}
+    for r in records:
+        try:
+            d = r["date"]
+            day = int(d.split("-")[2])
+            if day not in cal_data:
+                cal_data[day] = []
+            cal_data[day].append(r)
+        except (IndexError, ValueError):
+            continue
+    return cal_data
+
+
 @app.get("/", response_class=HTMLResponse)
-async def dashboard(request: Request, user: dict = Depends(require_user)):
+async def dashboard(request: Request, year: Optional[int] = None, month: Optional[int] = None, user: dict = Depends(require_user)):
     conn = get_conn()
     user_id = user["user_id"]
 
+    # Calendar month
+    today = date.today()
+    cal_year = year or today.year
+    cal_month = month or today.month
+    # Clamp
+    if cal_month < 1:
+        cal_month = 12
+        cal_year -= 1
+    elif cal_month > 12:
+        cal_month = 1
+        cal_year += 1
+
     if user["is_trainer"]:
-        # Trainer sees all from their groups
         trainer_groups = user["trainer_groups"]
         if trainer_groups:
             placeholders = ",".join("?" * len(trainer_groups))
@@ -211,6 +254,7 @@ async def dashboard(request: Request, user: dict = Depends(require_user)):
             total = total_users = 0
             avg_kcal = total_kcal = 0
             recent = []
+        cal_records = get_all_records_by_month_for_trainer(user_id, cal_year, cal_month)
     else:
         total = conn.execute("SELECT COUNT(*) as c FROM records WHERE user_id=?", (user_id,)).fetchone()["c"]
         total_users = 1
@@ -220,8 +264,35 @@ async def dashboard(request: Request, user: dict = Depends(require_user)):
             "SELECT r.*, u.name FROM records r LEFT JOIN users u ON r.user_id=u.user_id AND r.chat_id=u.chat_id WHERE r.user_id=? ORDER BY r.created_at DESC LIMIT 20",
             (user_id,)
         ).fetchall()]
+        cal_records = get_records_by_month(user_id, cal_year, cal_month)
 
     conn.close()
+
+    cal_data = _build_calendar_data(cal_records, cal_year, cal_month)
+    # Calendar grid: weeks as list of days (Mon=0)
+    first_weekday, num_days = cal_module.monthrange(cal_year, cal_month)
+    # first_weekday: 0=Mon, build weeks
+    weeks = []
+    current_week = [None] * first_weekday
+    for day in range(1, num_days + 1):
+        current_week.append(day)
+        if len(current_week) == 7:
+            weeks.append(current_week)
+            current_week = []
+    if current_week:
+        current_week.extend([None] * (7 - len(current_week)))
+        weeks.append(current_week)
+
+    # Prev/next month
+    if cal_month == 1:
+        prev_year, prev_month = cal_year - 1, 12
+    else:
+        prev_year, prev_month = cal_year, cal_month - 1
+    if cal_month == 12:
+        next_year, next_month = cal_year + 1, 1
+    else:
+        next_year, next_month = cal_year, cal_month + 1
+
     return templates.TemplateResponse("dashboard.html", {
         "request": request,
         "user": user,
@@ -230,6 +301,16 @@ async def dashboard(request: Request, user: dict = Depends(require_user)):
         "avg_kcal": round(avg_kcal, 1) if avg_kcal else 0,
         "total_kcal": round(total_kcal, 1) if total_kcal else 0,
         "recent": recent,
+        "cal_year": cal_year,
+        "cal_month": cal_month,
+        "cal_weeks": weeks,
+        "cal_data": cal_data,
+        "prev_year": prev_year,
+        "prev_month": prev_month,
+        "next_year": next_year,
+        "next_month": next_month,
+        "today_day": today.day if today.year == cal_year and today.month == cal_month else None,
+        "get_category_color": get_category_color,
     })
 
 
@@ -433,3 +514,32 @@ async def api_delete_record(record_id: int, user: dict = Depends(require_user)):
     if delete_record(record_id, user["user_id"]):
         return JSONResponse({"ok": True})
     return JSONResponse({"error": "삭제 실패"}, status_code=403)
+
+
+@app.get("/api/calendar")
+async def api_calendar(request: Request, year: Optional[int] = None, month: Optional[int] = None, user: dict = Depends(require_user)):
+    """Calendar data as JSON."""
+    today = date.today()
+    y = year or today.year
+    m = month or today.month
+
+    if user["is_trainer"]:
+        records = get_all_records_by_month_for_trainer(user["user_id"], y, m)
+    else:
+        records = get_records_by_month(user["user_id"], y, m)
+
+    cal_data = _build_calendar_data(records, y, m)
+    # Convert to JSON-serializable
+    result = {}
+    for day, recs in cal_data.items():
+        result[str(day)] = [
+            {
+                "id": r["id"],
+                "date": r["date"],
+                "category": r.get("category", ""),
+                "name": r.get("name", ""),
+                "estimated_kcal": r.get("estimated_kcal"),
+            }
+            for r in recs
+        ]
+    return JSONResponse({"year": y, "month": m, "days": result})

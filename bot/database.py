@@ -25,6 +25,7 @@ def init_db() -> None:
             structured_md TEXT,
             analysis TEXT,
             estimated_kcal REAL,
+            category TEXT,
             created_at TEXT NOT NULL
         );
         CREATE TABLE IF NOT EXISTS users (
@@ -43,7 +44,12 @@ def init_db() -> None:
             PRIMARY KEY (chat_id, user_id)
         );
     """)
-    conn.commit()
+    # Add category column if missing (existing DBs)
+    try:
+        conn.execute("ALTER TABLE records ADD COLUMN category TEXT")
+        conn.commit()
+    except Exception:
+        pass  # column already exists
     conn.close()
 
 
@@ -110,11 +116,12 @@ def save_record(
     analysis: str,
     estimated_kcal: Optional[float],
     date: Optional[str] = None,
+    category: Optional[str] = None,
 ) -> int:
     conn = get_conn()
     record_date = date or datetime.utcnow().strftime("%Y-%m-%d")
     cur = conn.execute(
-        "INSERT INTO records (chat_id, user_id, date, raw_input, structured_md, analysis, estimated_kcal, created_at) VALUES (?,?,?,?,?,?,?,?)",
+        "INSERT INTO records (chat_id, user_id, date, raw_input, structured_md, analysis, estimated_kcal, category, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
         (
             chat_id,
             user_id,
@@ -123,6 +130,7 @@ def save_record(
             structured_md,
             analysis,
             estimated_kcal,
+            category,
             datetime.utcnow().isoformat(),
         ),
     )
@@ -143,12 +151,12 @@ def get_today_record(chat_id: int, user_id: int, date: str) -> Optional[dict]:
     return dict(row) if row else None
 
 
-def merge_record(record_id: int, structured_md: str, analysis: str, estimated_kcal: Optional[float]) -> None:
+def merge_record(record_id: int, structured_md: str, analysis: str, estimated_kcal: Optional[float], category: Optional[str] = None) -> None:
     """Update an existing record with merged data."""
     conn = get_conn()
     conn.execute(
-        "UPDATE records SET structured_md=?, analysis=?, estimated_kcal=? WHERE id=?",
-        (structured_md, analysis, estimated_kcal, record_id),
+        "UPDATE records SET structured_md=?, analysis=?, estimated_kcal=?, category=? WHERE id=?",
+        (structured_md, analysis, estimated_kcal, category, record_id),
     )
     conn.commit()
     conn.close()
@@ -334,3 +342,49 @@ def get_records_for_user(user_id: int) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def get_records_by_month(user_id: int, year: int, month: int) -> list[dict]:
+    """Get all records for a user in a given month (across all chats)."""
+    date_prefix = f"{year:04d}-{month:02d}"
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT r.*, u.name FROM records r LEFT JOIN users u ON r.user_id=u.user_id AND r.chat_id=u.chat_id WHERE r.user_id=? AND r.date LIKE ? ORDER BY r.date",
+        (user_id, date_prefix + "%"),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_all_records_by_month_for_trainer(user_id: int, year: int, month: int) -> list[dict]:
+    """Get records from all trainer's groups for a month."""
+    date_prefix = f"{year:04d}-{month:02d}"
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT r.*, u.name FROM records r
+           LEFT JOIN users u ON r.user_id=u.user_id AND r.chat_id=u.chat_id
+           WHERE r.chat_id IN (SELECT chat_id FROM group_members WHERE user_id=? AND is_trainer=1)
+           AND r.date LIKE ?
+           ORDER BY r.date""",
+        (user_id, date_prefix + "%"),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_records_without_category() -> list[dict]:
+    """Get records that have no category set."""
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, structured_md FROM records WHERE category IS NULL AND structured_md IS NOT NULL"
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def update_record_category(record_id: int, category: str) -> None:
+    """Update the category of a record."""
+    conn = get_conn()
+    conn.execute("UPDATE records SET category=? WHERE id=?", (category, record_id))
+    conn.commit()
+    conn.close()
