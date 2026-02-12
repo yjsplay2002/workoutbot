@@ -11,6 +11,7 @@ from telegram.ext import (
 from bot.database import init_db
 from bot.handlers import (
     cmd_analyze,
+    cmd_delete,
     cmd_editdate,
     cmd_help,
     cmd_history,
@@ -48,6 +49,7 @@ def run_bot() -> None:
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("analyze", cmd_analyze))
     app.add_handler(CommandHandler("editdate", cmd_editdate))
+    app.add_handler(CommandHandler("delete", cmd_delete))
     app.add_handler(CommandHandler("settrainer", cmd_settrainer))
     app.add_handler(CommandHandler("unsettrainer", cmd_unsettrainer))
 

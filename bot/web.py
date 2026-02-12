@@ -14,6 +14,7 @@ from itsdangerous import URLSafeSerializer
 from markupsafe import Markup
 
 from bot.database import (
+    delete_record,
     get_all_records_for_trainer,
     get_group_members,
     get_records_for_user,
@@ -424,3 +425,11 @@ async def api_edit_date(record_id: int, request: Request, user: dict = Depends(r
     if update_record_date(record_id, new_date, user["user_id"]):
         return JSONResponse({"ok": True, "new_date": new_date})
     return JSONResponse({"error": "수정 실패"}, status_code=403)
+
+
+@app.post("/api/records/{record_id}/delete")
+async def api_delete_record(record_id: int, user: dict = Depends(require_user)):
+    """Delete a record."""
+    if delete_record(record_id, user["user_id"]):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "삭제 실패"}, status_code=403)

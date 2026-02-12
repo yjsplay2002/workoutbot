@@ -14,6 +14,8 @@ from bot.analyzer import (
 )
 from bot.database import (
     add_group_member,
+    delete_all_records,
+    delete_record,
     get_last_record,
     get_recent_records,
     get_stats,
@@ -226,6 +228,38 @@ async def cmd_editdate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"✅ 기록 #{record_id}의 날짜가 <b>{new_date}</b>로 수정되었습니다.", parse_mode="HTML")
     else:
         await update.message.reply_text("❌ 수정 실패 — 해당 기록을 찾을 수 없거나 권한이 없습니다.")
+
+
+async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Delete a record. Usage: /delete <record_id> or /delete all"""
+    if not context.args:
+        records = get_recent_records(update.effective_chat.id, update.effective_user.id, 5)
+        if not records:
+            await update.message.reply_text("📭 삭제할 기록이 없습니다.")
+            return
+        lines = ["사용법:\n• /delete [기록ID] — 개별 삭제\n• /delete all — 전체 삭제\n\n<b>최근 기록:</b>"]
+        for r in records:
+            lines.append(f"• ID <b>{r['id']}</b> — {r['date']} ({(r.get('structured_md') or '')[:50]}...)")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    arg = context.args[0].lower()
+
+    if arg == "all":
+        count = delete_all_records(update.effective_chat.id, update.effective_user.id)
+        await update.message.reply_text(f"🗑️ {count}개 기록이 전체 삭제되었습니다.")
+        return
+
+    try:
+        record_id = int(arg)
+    except ValueError:
+        await update.message.reply_text("기록 ID는 숫자여야 합니다. 전체 삭제는 /delete all")
+        return
+
+    if delete_record(record_id, update.effective_user.id):
+        await update.message.reply_text(f"🗑️ 기록 #{record_id}이 삭제되었습니다.")
+    else:
+        await update.message.reply_text("❌ 삭제 실패 — 해당 기록을 찾을 수 없거나 권한이 없습니다.")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

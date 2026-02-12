@@ -154,6 +154,29 @@ def merge_record(record_id: int, structured_md: str, analysis: str, estimated_kc
     conn.close()
 
 
+def delete_record(record_id: int, user_id: int) -> bool:
+    """Delete a single record. Returns True if successful."""
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM records WHERE id=?", (record_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute("DELETE FROM records WHERE id=?", (record_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def delete_all_records(chat_id: int, user_id: int) -> int:
+    """Delete all records for a user in a chat. Returns count deleted."""
+    conn = get_conn()
+    cur = conn.execute("DELETE FROM records WHERE chat_id=? AND user_id=?", (chat_id, user_id))
+    count = cur.rowcount
+    conn.commit()
+    conn.close()
+    return count
+
+
 def update_record_date(record_id: int, new_date: str, user_id: int) -> bool:
     """Update the date of a record. Returns True if successful."""
     conn = get_conn()

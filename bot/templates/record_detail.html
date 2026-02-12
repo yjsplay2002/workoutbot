@@ -6,6 +6,7 @@
   <div class="meta">
     <span class="date" id="record-date">📅 {{ record.date }}</span>
     <button onclick="editDate()" style="background:#6c5ce7;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.8em;margin-left:8px">날짜 수정</button>
+    <button onclick="deleteRecord()" style="background:#e74c3c;color:#fff;border:none;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.8em;margin-left:4px">삭제</button>
     <span class="user"><a href="/user/{{ record.user_id }}">{{ record.name or ('사용자 ' ~ record.user_id) }}</a></span>
     {% if record.estimated_kcal %}
     <span class="kcal {% if record.estimated_kcal < 200 %}kcal-low{% elif record.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ record.estimated_kcal|round(0)|int }} kcal</span>
@@ -26,6 +27,19 @@
 <div style="margin-top:24px;font-size:.85em;color:var(--text2)">생성: {{ record.created_at }}</div>
 
 <script>
+function deleteRecord() {
+  if (!confirm('정말 이 기록을 삭제하시겠습니까?')) return;
+  fetch('/api/records/{{ record.id }}/delete', {
+    method: 'POST'
+  }).then(r => r.json()).then(data => {
+    if (data.ok) {
+      alert('삭제되었습니다.');
+      window.location.href = '/records';
+    } else {
+      alert('삭제 실패: ' + (data.error || '알 수 없는 오류'));
+    }
+  }).catch(e => alert('오류: ' + e));
+}
 function editDate() {
   const current = '{{ record.date }}';
   const newDate = prompt('새 날짜를 입력하세요 (YYYY-MM-DD)', current);
