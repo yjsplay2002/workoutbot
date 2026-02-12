@@ -263,12 +263,29 @@ async def _process_album_after_delay(
     await status_msg.edit_text(f"📸 이미지 {count}장 분석 중...")
 
     try:
-        # Extract from all images
+        # Extract from all images IN PARALLEL
+        await status_msg.edit_text(f"📸 이미지 {count}장에서 운동 기록 추출 중... (1/{count})")
+
+        async def extract_one(idx, img):
+            result = await extract_from_image(img)
+            try:
+                await status_msg.edit_text(
+                    f"📸 이미지 추출 중... ({idx + 1}/{count})"
+                )
+            except Exception:
+                pass
+            return result
+
+        tasks = [extract_one(i, img) for i, img in enumerate(images)]
+        extracted_results = await asyncio.gather(*tasks, return_exceptions=True)
+
         all_extracted = []
-        for i, img in enumerate(images):
-            extracted = await extract_from_image(img)
-            if "NO_WORKOUT_DATA" not in extracted:
-                all_extracted.append(extracted)
+        for r in extracted_results:
+            if isinstance(r, Exception):
+                logger.error(f"Image extraction error: {r}")
+                continue
+            if "NO_WORKOUT_DATA" not in r:
+                all_extracted.append(r)
 
         if not all_extracted:
             await status_msg.edit_text("이미지에서 운동 기록을 찾을 수 없습니다.")
@@ -279,11 +296,12 @@ async def _process_album_after_delay(
         weight = get_user_weight(user.id, chat_id)
         history = get_recent_records(chat_id, user.id, 5)
 
-        results = []
-        for date, data_list in sorted(date_groups.items()):
-            combined = "\n\n".join(data_list)
+        date_count = len(date_groups)
+        await status_msg.edit_text(f"📊 {date_count}개 날짜 분석 중...")
 
-            # Check if there's already a record for this date — merge if so
+        # Analyze each date group IN PARALLEL
+        async def analyze_one(date, data_list):
+            combined = "\n\n".join(data_list)
             existing = get_today_record(chat_id, user.id, date)
             if existing:
                 merged = existing["structured_md"] + "\n\n" + combined
@@ -294,17 +312,27 @@ async def _process_album_after_delay(
                 analysis = await analyze_workout(combined, weight, format_history_summary(history))
                 kcal = extract_kcal(analysis)
                 save_record(chat_id, user.id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date)
+            return date, analysis
 
+        analysis_tasks = [analyze_one(d, dl) for d, dl in sorted(date_groups.items())]
+        analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
+
+        results = []
+        for r in analysis_results:
+            if isinstance(r, Exception):
+                logger.error(f"Analysis error: {r}")
+                continue
+            date, analysis = r
             results.append(f"📅 <b>{date}</b>\n{analysis}")
 
-        full_result = "\n\n" + ("━" * 20) + "\n\n".join(results)
-        # Telegram message limit is 4096 chars
-        if len(full_result) > 4000:
-            for r in results:
+        # Send results — one message per date to avoid length issues
+        await status_msg.edit_text(f"✅ {len(results)}개 날짜 분석 완료!")
+        for r in results:
+            # Split if too long
+            if len(r) > 4000:
                 await update.message.reply_text(r[:4000], parse_mode="HTML")
-            await status_msg.delete()
-        else:
-            await status_msg.edit_text(full_result, parse_mode="HTML")
+            else:
+                await update.message.reply_text(r, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Album analysis error: {e}")
