@@ -21,7 +21,14 @@ def get_client() -> AsyncOpenAI:
 EXTRACT_SYSTEM = (
     "You are a fitness data extraction expert. "
     "Extract all workout exercises from this input. "
-    "IMPORTANT: First identify the DATE of the workout. Look for any date information in the image.\n"
+    "IMPORTANT: First identify the DATE of the workout.\n"
+    "Date formats you may see in images:\n"
+    "- '26.1.27' means 2026-01-27 (YY.M.DD format)\n"
+    "- '26.02.03' means 2026-02-03\n"
+    "- '2026.01.24' means 2026-01-24\n"
+    "- '1/24' or '01/24' with context of year 2026\n"
+    "ASSUME the year is 2026 unless explicitly stated otherwise.\n"
+    "Two-digit years like '26' mean 2026, NOT 1926 or 2023.\n\n"
     "Output format:\n"
     "DATE: YYYY-MM-DD\n"
     "1. 운동명 (English) — Set1: 무게kg×횟수, Set2: 무게kg×횟수, ...\n\n"
@@ -79,7 +86,7 @@ async def extract_from_image(image_bytes: bytes) -> str:
                 "role": "user",
                 "content": [
                     {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text", "text": "이 이미지에서 운동 기록을 추출해주세요."},
+                    {"type": "text", "text": "이 이미지에서 운동 기록을 추출해주세요. 날짜가 있다면 정확히 읽어주세요. 2자리 연도(예: 26)는 2026년입니다."},
                 ],
             },
         ],
@@ -120,15 +127,33 @@ async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None,
     return resp.choices[0].message.content or ""
 
 
+def _fix_year(year_str: str) -> str:
+    """Fix 2-digit or wrong years to 2026."""
+    y = int(year_str)
+    if y < 100:  # 2-digit year like 26
+        y += 2000
+    if y < 2024 or y > 2030:  # likely wrong, default to 2026
+        y = 2026
+    return str(y)
+
+
 def extract_date(text: str) -> Optional[str]:
     """Extract DATE: YYYY-MM-DD from extraction result."""
-    m = re.search(r'DATE:\s*(\d{4}-\d{2}-\d{2})', text)
+    # YYYY-MM-DD
+    m = re.search(r'DATE:\s*(\d{2,4})-(\d{1,2})-(\d{1,2})', text)
     if m:
-        return m.group(1)
-    # Try other date formats
-    m = re.search(r'DATE:\s*(\d{4})\.(\d{2})\.(\d{2})', text)
+        year = _fix_year(m.group(1))
+        return f"{year}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    # YYYY.MM.DD
+    m = re.search(r'DATE:\s*(\d{2,4})\.(\d{1,2})\.(\d{1,2})', text)
     if m:
-        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+        year = _fix_year(m.group(1))
+        return f"{year}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
+    # YYYY/MM/DD
+    m = re.search(r'DATE:\s*(\d{2,4})/(\d{1,2})/(\d{1,2})', text)
+    if m:
+        year = _fix_year(m.group(1))
+        return f"{year}-{int(m.group(2)):02d}-{int(m.group(3)):02d}"
     return None
 
 
