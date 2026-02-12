@@ -24,6 +24,7 @@ from bot.database import (
     set_trainer,
     set_weight,
     unset_trainer,
+    update_record_date,
     upsert_user,
 )
 from bot.utils import check_rate_limit, format_history_summary
@@ -191,6 +192,40 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as e:
         logger.error(f"Re-analysis error: {e}")
         await update.message.reply_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+async def cmd_editdate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Change the date of a record. Usage: /editdate <record_id> <YYYY-MM-DD>"""
+    if not context.args or len(context.args) < 2:
+        # Show recent records to help user pick an ID
+        records = get_recent_records(update.effective_chat.id, update.effective_user.id, 5)
+        if not records:
+            await update.message.reply_text("📭 수정할 기록이 없습니다.")
+            return
+        lines = ["사용법: /editdate [기록ID] [새날짜]\n예시: /editdate 3 2026-01-24\n\n<b>최근 기록:</b>"]
+        for r in records:
+            lines.append(f"• ID <b>{r['id']}</b> — {r['date']} ({(r.get('structured_md') or '')[:50]}...)")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    try:
+        record_id = int(context.args[0])
+    except ValueError:
+        await update.message.reply_text("기록 ID는 숫자여야 합니다.")
+        return
+
+    new_date = context.args[1]
+    # Validate date format
+    try:
+        datetime.strptime(new_date, "%Y-%m-%d")
+    except ValueError:
+        await update.message.reply_text("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.\n예: 2026-01-24")
+        return
+
+    if update_record_date(record_id, new_date, update.effective_user.id):
+        await update.message.reply_text(f"✅ 기록 #{record_id}의 날짜가 <b>{new_date}</b>로 수정되었습니다.", parse_mode="HTML")
+    else:
+        await update.message.reply_text("❌ 수정 실패 — 해당 기록을 찾을 수 없거나 권한이 없습니다.")
 
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

@@ -154,6 +154,19 @@ def merge_record(record_id: int, structured_md: str, analysis: str, estimated_kc
     conn.close()
 
 
+def update_record_date(record_id: int, new_date: str, user_id: int) -> bool:
+    """Update the date of a record. Returns True if successful."""
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM records WHERE id=?", (record_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute("UPDATE records SET date=? WHERE id=?", (new_date, record_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
 def get_recent_records(chat_id: int, user_id: int, limit: int = 5) -> list:
     conn = get_conn()
     rows = conn.execute(

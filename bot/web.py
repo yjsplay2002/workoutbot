@@ -20,6 +20,7 @@ from bot.database import (
     get_trainer_groups,
     get_user_groups,
     is_user_trainer,
+    update_record_date,
 )
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join("data", "workout.db"))
@@ -407,3 +408,19 @@ async def api_stats():
     ).fetchone()
     conn.close()
     return dict(row)
+
+
+@app.post("/api/records/{record_id}/editdate")
+async def api_edit_date(record_id: int, request: Request, user: dict = Depends(require_user)):
+    """Edit the date of a record."""
+    body = await request.json()
+    new_date = body.get("date", "")
+    try:
+        from datetime import datetime as dt
+        dt.strptime(new_date, "%Y-%m-%d")
+    except ValueError:
+        return JSONResponse({"error": "날짜 형식이 올바르지 않습니다 (YYYY-MM-DD)"}, status_code=400)
+
+    if update_record_date(record_id, new_date, user["user_id"]):
+        return JSONResponse({"ok": True, "new_date": new_date})
+    return JSONResponse({"error": "수정 실패"}, status_code=403)
