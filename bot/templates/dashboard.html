@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block title %}운동 대시보드{% endblock %}
+{% block content %}
+<h1>📊 운동 대시보드</h1>
+<div class="stats-grid">
+  <div class="stat-card"><div class="label">총 기록 수</div><div class="value">{{ total_records }}</div></div>
+  <div class="stat-card"><div class="label">사용자 수</div><div class="value">{{ total_users }}</div></div>
+  <div class="stat-card"><div class="label">평균 칼로리</div><div class="value">{{ avg_kcal }} kcal</div></div>
+  <div class="stat-card"><div class="label">총 소모 칼로리</div><div class="value">{{ total_kcal }} kcal</div></div>
+</div>
+<h2>🕐 최근 기록</h2>
+{% if recent %}
+{% for r in recent %}
+<a href="/records/{{ r.id }}" style="text-decoration:none;color:inherit">
+<div class="record-card">
+  <div class="meta">
+    <span class="date">📅 {{ r.date }}</span>
+    <span class="user"><a href="/user/{{ r.user_id }}">{{ r.name or ('사용자 ' ~ r.user_id) }}</a></span>
+    {% if r.estimated_kcal %}
+    <span class="kcal {% if r.estimated_kcal < 200 %}kcal-low{% elif r.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ r.estimated_kcal|round(0)|int }} kcal</span>
+    {% endif %}
+  </div>
+  {% if r.analysis %}<div style="color:var(--text2);font-size:.85em;margin-top:4px">{{ r.analysis[:120] }}{% if r.analysis|length > 120 %}...{% endif %}</div>{% endif %}
+</div>
+</a>
+{% endfor %}
+{% else %}
+<div class="empty">아직 기록이 없습니다 🏃</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: workout-analyzer-bot
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: WEB_PORT
+        value: "10000"
+    disk:
+      name: data
+      mountPath: /app/data
+      sizeGB: 1

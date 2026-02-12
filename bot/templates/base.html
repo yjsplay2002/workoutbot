@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>{% block title %}운동 대시보드{% endblock %}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0f0f13;--card:#1a1a24;--card2:#22223a;--accent:#6c5ce7;--accent2:#a29bfe;--text:#e0e0e0;--text2:#8888a0;--green:#00b894;--orange:#fdcb6e;--red:#ff7675;--border:#2d2d44}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;line-height:1.6}
+a{color:var(--accent2);text-decoration:none}
+a:hover{text-decoration:underline}
+nav{background:var(--card);border-bottom:1px solid var(--border);padding:12px 24px;display:flex;align-items:center;gap:24px;position:sticky;top:0;z-index:100;flex-wrap:wrap}
+nav .logo{font-size:1.3em;font-weight:700;color:var(--accent2)}
+nav a{color:var(--text2);font-size:.95em}
+nav a:hover{color:var(--text)}
+nav .spacer{flex:1}
+nav .user-info{display:flex;align-items:center;gap:12px;font-size:.9em;color:var(--text2)}
+nav .user-info .name{color:var(--accent2)}
+.container{max-width:960px;margin:0 auto;padding:24px 16px}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:32px}
+.stat-card{background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border)}
+.stat-card .label{font-size:.85em;color:var(--text2);margin-bottom:4px}
+.stat-card .value{font-size:1.8em;font-weight:700;color:var(--accent2)}
+.record-card{background:var(--card);border-radius:12px;padding:16px 20px;margin-bottom:12px;border:1px solid var(--border);transition:border-color .2s}
+.record-card:hover{border-color:var(--accent)}
+.record-card .meta{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:8px}
+.record-card .date{color:var(--text2);font-size:.9em}
+.record-card .user{color:var(--accent2);font-size:.9em}
+.kcal{font-weight:700;padding:2px 10px;border-radius:20px;font-size:.85em;display:inline-block}
+.kcal-low{background:#00b89422;color:var(--green)}
+.kcal-mid{background:#fdcb6e22;color:var(--orange)}
+.kcal-high{background:#ff767522;color:var(--red)}
+.content-box{background:var(--card2);border-radius:8px;padding:16px;margin-top:12px;font-size:.95em;line-height:1.7}
+.content-box b,.content-box strong{color:var(--accent2)}
+.content-box ul,.content-box ol{padding-left:20px;margin:8px 0}
+h1{font-size:1.6em;margin-bottom:20px;color:var(--text)}
+h2{font-size:1.2em;margin:24px 0 12px;color:var(--text)}
+.filter-bar{display:flex;gap:12px;margin-bottom:24px;flex-wrap:wrap;align-items:center}
+.filter-bar input{background:var(--card);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px;font-size:.9em}
+.filter-bar button{background:var(--accent);color:#fff;border:none;padding:8px 20px;border-radius:8px;cursor:pointer;font-size:.9em}
+.filter-bar button:hover{background:var(--accent2)}
+.pagination{display:flex;gap:8px;justify-content:center;margin-top:24px}
+.pagination a,.pagination span{padding:6px 14px;border-radius:8px;background:var(--card);border:1px solid var(--border);font-size:.9em}
+.pagination .active{background:var(--accent);border-color:var(--accent);color:#fff}
+.bar-chart{margin:16px 0}
+.bar-row{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.bar-label{width:80px;font-size:.8em;color:var(--text2);text-align:right;flex-shrink:0}
+.bar{height:24px;border-radius:4px;background:linear-gradient(90deg,var(--accent),var(--accent2));min-width:2px;transition:width .3s}
+.bar-val{font-size:.8em;color:var(--text2);margin-left:4px}
+.empty{text-align:center;color:var(--text2);padding:40px;font-size:1.1em}
+.badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:.75em;font-weight:600;background:var(--accent);color:#fff;margin-left:6px}
+@media(max-width:600px){.stats-grid{grid-template-columns:1fr 1fr}.stat-card .value{font-size:1.4em}nav{padding:10px 12px;gap:12px}}
+</style>
+</head>
+<body>
+<nav>
+<span class="logo">🏋️ 운동 기록</span>
+<a href="/">대시보드</a>
+<a href="/records">전체 기록</a>
+{% if user and user.is_trainer %}
+<a href="/trainer">트레이너 대시보드</a>
+{% endif %}
+<span class="spacer"></span>
+{% if user %}
+<div class="user-info">
+  <span class="name">👤 {{ user.first_name or user.username or user.user_id }}</span>
+  {% if user.is_trainer %}<span class="badge">트레이너</span>{% endif %}
+  <a href="/logout" style="color:var(--red)">로그아웃</a>
+</div>
+{% endif %}
+</nav>
+<div class="container">
+{% block content %}{% endblock %}
+</div>
+</body>
+</html>

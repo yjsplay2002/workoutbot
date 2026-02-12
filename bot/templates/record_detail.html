@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}기록 #{{ record.id }}{% endblock %}
+{% block content %}
+<h1>📝 운동 기록 #{{ record.id }}</h1>
+<div class="record-card">
+  <div class="meta">
+    <span class="date">📅 {{ record.date }}</span>
+    <span class="user"><a href="/user/{{ record.user_id }}">{{ record.name or ('사용자 ' ~ record.user_id) }}</a></span>
+    {% if record.estimated_kcal %}
+    <span class="kcal {% if record.estimated_kcal < 200 %}kcal-low{% elif record.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ record.estimated_kcal|round(0)|int }} kcal</span>
+    {% endif %}
+  </div>
+</div>
+
+{% if record.structured_md %}
+<h2>🏋️ 운동 내용</h2>
+<div class="content-box">{{ record.structured_md|safe }}</div>
+{% endif %}
+
+{% if record.analysis %}
+<h2>📊 분석</h2>
+<div class="content-box">{{ record.analysis|safe }}</div>
+{% endif %}
+
+{% if record.raw_input %}
+<h2>📥 원본 입력</h2>
+<div class="content-box" style="white-space:pre-wrap;color:var(--text2)">{{ record.raw_input }}</div>
+{% endif %}
+
+<div style="margin-top:24px;font-size:.85em;color:var(--text2)">생성: {{ record.created_at }}</div>
+{% endblock %}

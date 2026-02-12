@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}{{ target_user.name or ('사용자 ' ~ target_user.user_id) }}{% endblock %}
+{% block content %}
+<h1>👤 {{ target_user.name or ('사용자 ' ~ target_user.user_id) }}</h1>
+<div class="stats-grid">
+  <div class="stat-card"><div class="label">총 기록</div><div class="value">{{ stats.cnt or 0 }}</div></div>
+  <div class="stat-card"><div class="label">평균 칼로리</div><div class="value">{{ (stats.avg_kcal or 0)|round(0)|int }} kcal</div></div>
+  <div class="stat-card"><div class="label">총 소모</div><div class="value">{{ (stats.total_kcal or 0)|round(0)|int }} kcal</div></div>
+  {% if target_user.weight_kg %}<div class="stat-card"><div class="label">체중</div><div class="value">{{ target_user.weight_kg }} kg</div></div>{% endif %}
+</div>
+
+{% if weekly %}
+<h2>📈 주간 칼로리 추이</h2>
+<div class="bar-chart">
+{% set max_kcal = weekly|map(attribute='kcal')|max %}
+{% for w in weekly %}
+<div class="bar-row">
+  <span class="bar-label">{{ w.week }}</span>
+  <div class="bar" style="width:{{ (w.kcal / max_kcal * 100)|round(0)|int if max_kcal else 0 }}%"></div>
+  <span class="bar-val">{{ w.kcal|round(0)|int }} kcal ({{ w.cnt }}회)</span>
+</div>
+{% endfor %}
+</div>
+{% endif %}
+
+<h2>🕐 운동 기록</h2>
+{% if records %}
+{% for r in records %}
+<a href="/records/{{ r.id }}" style="text-decoration:none;color:inherit">
+<div class="record-card">
+  <div class="meta">
+    <span class="date">📅 {{ r.date }}</span>
+    {% if r.estimated_kcal %}
+    <span class="kcal {% if r.estimated_kcal < 200 %}kcal-low{% elif r.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ r.estimated_kcal|round(0)|int }} kcal</span>
+    {% endif %}
+  </div>
+  {% if r.analysis %}<div style="color:var(--text2);font-size:.85em;margin-top:4px">{{ r.analysis[:100] }}{% if r.analysis|length > 100 %}...{% endif %}</div>{% endif %}
+</div>
+</a>
+{% endfor %}
+{% else %}
+<div class="empty">기록이 없습니다</div>
+{% endif %}
+{% endblock %}

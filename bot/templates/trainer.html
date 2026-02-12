@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}트레이너 대시보드{% endblock %}
+{% block content %}
+<h1>🏆 트레이너 대시보드</h1>
+
+{% if groups %}
+{% for group in groups %}
+<div style="background:var(--card);border-radius:12px;padding:20px;margin-bottom:24px;border:1px solid var(--border)">
+  <h2 style="margin-top:0">📋 그룹 {{ group.chat_id }}</h2>
+  {% if group.members %}
+  <div style="display:grid;gap:12px;margin-top:12px">
+    {% for m in group.members %}
+    <div style="background:var(--card2);border-radius:8px;padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <a href="/user/{{ m.user_id }}" style="font-weight:600;font-size:1.05em">
+          👤 {{ m.name or ('사용자 ' ~ m.user_id) }}
+        </a>
+        {% if m.is_trainer %}<span class="badge">트레이너</span>{% endif %}
+      </div>
+      {% if m.recent_records %}
+      <div style="font-size:.85em;color:var(--text2)">
+        {% for r in m.recent_records %}
+        <div style="margin-top:4px">
+          📅 {{ r.date }}
+          {% if r.estimated_kcal %} — 🔥 {{ r.estimated_kcal|round(0)|int }} kcal{% endif %}
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div style="font-size:.85em;color:var(--text2)">기록 없음</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">멤버가 없습니다</div>
+  {% endif %}
+</div>
+{% endfor %}
+{% else %}
+<div class="empty">관리하는 그룹이 없습니다</div>
+{% endif %}
+{% endblock %}
