@@ -68,7 +68,16 @@ def safe_html(text: Optional[str]) -> Markup:
     return Markup(text)
 
 
+def strip_tags(text: Optional[str]) -> str:
+    """Remove HTML tags and return plain text."""
+    if not text:
+        return ""
+    import re
+    return re.sub(r'<[^>]+>', '', text)
+
+
 templates.env.filters["safe_html"] = safe_html
+templates.env.filters["strip_tags"] = strip_tags
 templates.env.globals["Markup"] = Markup
 
 
