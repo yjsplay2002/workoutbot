@@ -14,17 +14,12 @@
 
 {% if record.structured_md %}
 <h2>🏋️ 운동 내용</h2>
-<div class="content-box">{{ record.structured_md|safe }}</div>
+<div class="content-box">{{ record.structured_md|nl2br }}</div>
 {% endif %}
 
 {% if record.analysis %}
 <h2>📊 분석</h2>
-<div class="content-box">{{ record.analysis|safe }}</div>
-{% endif %}
-
-{% if record.raw_input %}
-<h2>📥 원본 입력</h2>
-<div class="content-box" style="white-space:pre-wrap;color:var(--text2)">{{ record.raw_input }}</div>
+<div class="content-box">{{ record.analysis|nl2br }}</div>
 {% endif %}
 
 <div style="margin-top:24px;font-size:.85em;color:var(--text2)">생성: {{ record.created_at }}</div>

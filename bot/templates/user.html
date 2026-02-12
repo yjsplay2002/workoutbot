@@ -34,7 +34,7 @@
     <span class="kcal {% if r.estimated_kcal < 200 %}kcal-low{% elif r.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ r.estimated_kcal|round(0)|int }} kcal</span>
     {% endif %}
   </div>
-  {% if r.analysis %}<div style="color:var(--text2);font-size:.85em;margin-top:4px">{{ r.analysis[:100] }}{% if r.analysis|length > 100 %}...{% endif %}</div>{% endif %}
+  {% if r.analysis %}<div style="color:var(--text2);font-size:.85em;margin-top:4px">{{ r.analysis|strip_tags|truncate(100) }}</div>{% endif %}
 </div>
 </a>
 {% endfor %}

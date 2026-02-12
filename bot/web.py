@@ -76,8 +76,16 @@ def strip_tags(text: Optional[str]) -> str:
     return re.sub(r'<[^>]+>', '', text)
 
 
+def nl2br(text: Optional[str]) -> Markup:
+    """Convert newlines to <br> while preserving existing HTML tags."""
+    if not text:
+        return Markup("")
+    return Markup(text.replace("\n", "<br>\n"))
+
+
 templates.env.filters["safe_html"] = safe_html
 templates.env.filters["strip_tags"] = strip_tags
+templates.env.filters["nl2br"] = nl2br
 templates.env.globals["Markup"] = Markup
 
 
