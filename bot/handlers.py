@@ -9,6 +9,7 @@ from bot.analyzer import (
     extract_from_image,
     extract_from_text,
     extract_kcal,
+    group_by_date,
     is_workout_text,
 )
 from bot.database import (
@@ -273,35 +274,37 @@ async def _process_album_after_delay(
             await status_msg.edit_text("이미지에서 운동 기록을 찾을 수 없습니다.")
             return
 
-        # Merge all extracted data into one
-        combined = "\n\n".join(all_extracted)
-
+        # Group by date extracted from images
+        date_groups = group_by_date(all_extracted)
         weight = get_user_weight(user.id, chat_id)
         history = get_recent_records(chat_id, user.id, 5)
 
-        # Check if there's already a record for today — merge if so
-        today = datetime.now().strftime("%Y-%m-%d")
-        existing = get_today_record(chat_id, user.id, today)
+        results = []
+        for date, data_list in sorted(date_groups.items()):
+            combined = "\n\n".join(data_list)
 
-        if existing:
-            # Merge with existing record
-            merged_structured = existing["structured_md"] + "\n\n" + combined
-            analysis = await analyze_workout(
-                merged_structured, weight, format_history_summary(history)
-            )
-            kcal = extract_kcal(analysis)
-            merge_record(existing["id"], merged_structured, analysis, kcal)
-            await status_msg.edit_text(
-                f"📋 오늘 기록에 {count}장 추가 병합 완료!\n\n{analysis}",
-                parse_mode="HTML",
-            )
+            # Check if there's already a record for this date — merge if so
+            existing = get_today_record(chat_id, user.id, date)
+            if existing:
+                merged = existing["structured_md"] + "\n\n" + combined
+                analysis = await analyze_workout(merged, weight, format_history_summary(history))
+                kcal = extract_kcal(analysis)
+                merge_record(existing["id"], merged, analysis, kcal)
+            else:
+                analysis = await analyze_workout(combined, weight, format_history_summary(history))
+                kcal = extract_kcal(analysis)
+                save_record(chat_id, user.id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date)
+
+            results.append(f"📅 <b>{date}</b>\n{analysis}")
+
+        full_result = "\n\n" + ("━" * 20) + "\n\n".join(results)
+        # Telegram message limit is 4096 chars
+        if len(full_result) > 4000:
+            for r in results:
+                await update.message.reply_text(r[:4000], parse_mode="HTML")
+            await status_msg.delete()
         else:
-            analysis = await analyze_workout(
-                combined, weight, format_history_summary(history)
-            )
-            kcal = extract_kcal(analysis)
-            save_record(chat_id, user.id, f"[image x{count}]", combined, analysis, kcal)
-            await status_msg.edit_text(analysis, parse_mode="HTML")
+            await status_msg.edit_text(full_result, parse_mode="HTML")
 
     except Exception as e:
         logger.error(f"Album analysis error: {e}")

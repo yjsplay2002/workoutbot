@@ -109,14 +109,16 @@ def save_record(
     structured_md: str,
     analysis: str,
     estimated_kcal: Optional[float],
+    date: Optional[str] = None,
 ) -> int:
     conn = get_conn()
+    record_date = date or datetime.utcnow().strftime("%Y-%m-%d")
     cur = conn.execute(
         "INSERT INTO records (chat_id, user_id, date, raw_input, structured_md, analysis, estimated_kcal, created_at) VALUES (?,?,?,?,?,?,?,?)",
         (
             chat_id,
             user_id,
-            datetime.utcnow().strftime("%Y-%m-%d"),
+            record_date,
             raw_input,
             structured_md,
             analysis,

@@ -21,9 +21,11 @@ def get_client() -> AsyncOpenAI:
 EXTRACT_SYSTEM = (
     "You are a fitness data extraction expert. "
     "Extract all workout exercises from this input. "
-    "For each exercise, identify: exercise name (Korean + English abbreviation), sets, reps, weight (kg). "
-    "Output as a numbered list like:\n"
-    "1. 운동명 (English) — Set1: 무게kg×횟수, Set2: 무게kg×횟수, ...\n"
+    "IMPORTANT: First identify the DATE of the workout. Look for any date information in the image.\n"
+    "Output format:\n"
+    "DATE: YYYY-MM-DD\n"
+    "1. 운동명 (English) — Set1: 무게kg×횟수, Set2: 무게kg×횟수, ...\n\n"
+    "The DATE line is mandatory. If no date is found, use DATE: UNKNOWN\n"
     "Do NOT use markdown tables. Use plain numbered lists only.\n"
     "If no workout data is found, reply exactly: NO_WORKOUT_DATA"
 )
@@ -116,6 +118,38 @@ async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None,
         max_tokens=2500,
     )
     return resp.choices[0].message.content or ""
+
+
+def extract_date(text: str) -> Optional[str]:
+    """Extract DATE: YYYY-MM-DD from extraction result."""
+    m = re.search(r'DATE:\s*(\d{4}-\d{2}-\d{2})', text)
+    if m:
+        return m.group(1)
+    # Try other date formats
+    m = re.search(r'DATE:\s*(\d{4})\.(\d{2})\.(\d{2})', text)
+    if m:
+        return f"{m.group(1)}-{m.group(2)}-{m.group(3)}"
+    return None
+
+
+def strip_date_line(text: str) -> str:
+    """Remove the DATE: line from extracted text."""
+    return re.sub(r'DATE:.*\n?', '', text).strip()
+
+
+def group_by_date(extractions: list[str]) -> dict[str, list[str]]:
+    """Group extracted workout data by date. Returns {date: [data1, data2, ...]}."""
+    from datetime import datetime
+    groups: dict[str, list[str]] = {}
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    for text in extractions:
+        date = extract_date(text) or today
+        clean = strip_date_line(text)
+        if clean:
+            groups.setdefault(date, []).append(clean)
+
+    return groups
 
 
 def extract_kcal(analysis: str) -> Optional[float]:
