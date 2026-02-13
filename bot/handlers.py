@@ -154,7 +154,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• 이미지 속 날짜를 자동 인식하여 날짜별 분리 저장\n\n"
         "<b>🌐 웹 대시보드:</b>\n"
         "• 텔레그램 로그인으로 웹에서 기록 열람 가능\n"
-        "• 달력 뷰, 운동 카테고리별 색상 표시",
+        "• 달력 뷰, 운동 카테고리별 색상 표시\n"
+        "• https://workoutbot-ybbz.onrender.com",
         parse_mode="HTML",
     )
 
