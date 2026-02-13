@@ -87,17 +87,40 @@ ALBUM_WAIT_SECONDS = 2.0  # wait for more photos in album
 
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    user = update.effective_user
+    chat_id = update.effective_chat.id
+    upsert_user(user.id, chat_id, user.full_name)
+
+    weight = get_user_weight(user.id, chat_id)
+    height = get_user_height(user.id, chat_id)
+
+    # If already set up, show welcome back
+    if weight and height:
+        await update.message.reply_text(
+            f"🏋️ <b>운동 기록 분석 봇</b>\n\n"
+            f"안녕하세요, {user.first_name}님! (체중: {weight}kg, 키: {height}cm)\n\n"
+            "운동 기록을 사진이나 텍스트로 보내주세요. 자동으로 분석해드립니다!\n\n"
+            "전체 명령어는 /help 를 확인해주세요.",
+            parse_mode="HTML",
+        )
+        return
+
+    # Onboarding flow
     await update.message.reply_text(
         "🏋️ <b>운동 기록 분석 봇</b>에 오신 것을 환영합니다!\n\n"
-        "이 봇은 운동 기록(텍스트 또는 이미지)을 자동으로 감지하고 "
-        "전문가 수준의 분석을 제공합니다.\n\n"
-        "<b>사용법:</b>\n"
-        "• 운동 기록을 텍스트나 사진으로 보내주세요 (여러 장도 OK)\n"
-        "• /setweight 75 — 체중 설정 (칼로리 추정용)\n"
-        "• /history — 최근 운동 기록\n"
-        "• /stats — 전체 통계\n"
-        "• /analyze — 마지막 기록 재분석\n"
-        "• /help — 도움말",
+        "이 봇은 운동 기록(텍스트 또는 이미지)을 AI로 분석하여\n"
+        "전문가 수준의 피드백과 칼로리 추정을 제공합니다.\n\n"
+        "📸 <b>사용법:</b>\n"
+        "• 운동 기록 사진을 보내면 자동 분석 (여러 장 OK)\n"
+        "• 운동 내용을 텍스트로 입력해도 자동 감지\n\n"
+        "⚙️ 먼저 정확한 칼로리 추정을 위해 신체 정보를 설정해주세요!\n\n"
+        "👇 아래 명령어를 순서대로 입력해주세요:\n\n"
+        "1️⃣ 체중 설정: /setweight [kg]\n"
+        "   예: /setweight 75\n\n"
+        "2️⃣ 키 설정: /setheight [cm]\n"
+        "   예: /setheight 175\n\n"
+        "설정 완료 후 운동 기록을 보내주시면 됩니다! 💪\n"
+        "전체 명령어는 /help 를 확인해주세요.",
         parse_mode="HTML",
     )
 
@@ -148,7 +171,19 @@ async def cmd_setweight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     user = update.effective_user
     set_weight(user.id, update.effective_chat.id, weight)
-    await update.message.reply_text(f"✅ 체중이 {weight}kg으로 설정되었습니다.")
+    height = get_user_height(user.id, update.effective_chat.id)
+    if not height:
+        await update.message.reply_text(
+            f"✅ 체중이 {weight}kg으로 설정되었습니다.\n\n"
+            "👉 이제 키도 설정해주세요: /setheight [cm]\n"
+            "예: /setheight 175"
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ 체중이 {weight}kg으로 설정되었습니다.\n"
+            f"현재 설정: 체중 {weight}kg, 키 {height}cm\n\n"
+            "🎉 설정 완료! 운동 기록을 보내주세요 💪"
+        )
 
 
 async def cmd_setheight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -165,7 +200,19 @@ async def cmd_setheight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
 
     user = update.effective_user
     set_height(user.id, update.effective_chat.id, height)
-    await update.message.reply_text(f"✅ 키가 {height}cm으로 설정되었습니다.")
+    weight = get_user_weight(user.id, update.effective_chat.id)
+    if not weight:
+        await update.message.reply_text(
+            f"✅ 키가 {height}cm으로 설정되었습니다.\n\n"
+            "👉 이제 체중도 설정해주세요: /setweight [kg]\n"
+            "예: /setweight 75"
+        )
+    else:
+        await update.message.reply_text(
+            f"✅ 키가 {height}cm으로 설정되었습니다.\n"
+            f"현재 설정: 체중 {weight}kg, 키 {height}cm\n\n"
+            "🎉 설정 완료! 운동 기록을 보내주세요 💪"
+        )
 
 
 async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
