@@ -103,17 +103,30 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "📖 <b>도움말</b>\n\n"
-        "이 봇은 그룹 채팅이나 DM에서 운동 기록을 자동 감지합니다.\n\n"
-        "<b>명령어:</b>\n"
+        "이 봇은 그룹 채팅이나 DM에서 운동 기록을 자동 감지하고 AI 전문가 분석을 제공합니다.\n\n"
+        "<b>📋 기본 명령어:</b>\n"
         "• /start — 봇 소개\n"
-        "• /setweight — 체중 설정\n"
-        "• /history — 최근 5개 운동 기록 요약\n"
-        "• /stats — 전체 운동 통계\n"
-        "• /analyze — 마지막 기록 재분석 (메시지에 답장하면 해당 메시지 분석)\n"
         "• /help — 이 도움말\n\n"
-        "<b>자동 감지:</b>\n"
-        "운동 관련 키워드가 포함된 텍스트나 운동 기록 이미지를 보내면 자동으로 분석합니다.\n"
-        "📸 여러 장의 이미지를 한꺼번에 보내도 자동으로 합쳐서 분석합니다.",
+        "<b>📊 기록 조회:</b>\n"
+        "• /history — 최근 5개 운동 기록 요약\n"
+        "• /stats — 전체 운동 통계 (세션수, 평균/총 칼로리)\n"
+        "• /analyze — 마지막 기록 재분석 (메시지에 답장하면 해당 메시지 분석)\n\n"
+        "<b>✏️ 기록 관리:</b>\n"
+        "• /editdate [ID] [날짜] — 기록 날짜 수정 (예: /editdate 3 2026-01-24)\n"
+        "• /delete [ID] — 개별 기록 삭제 (예: /delete 3)\n"
+        "• /delete all — 내 기록 전체 삭제\n\n"
+        "<b>⚙️ 설정:</b>\n"
+        "• /setweight [kg] — 체중 설정 (칼로리 추정 정확도 향상, 예: /setweight 75)\n\n"
+        "<b>👥 그룹 관리 (관리자 전용):</b>\n"
+        "• /settrainer — 트레이너 지정 (메시지에 답장)\n"
+        "• /unsettrainer — 트레이너 해제 (메시지에 답장)\n\n"
+        "<b>📸 자동 감지:</b>\n"
+        "• 운동 기록 이미지를 보내면 자동 분석 (여러 장 OK)\n"
+        "• 운동 관련 텍스트를 입력하면 자동 감지 후 분석\n"
+        "• 이미지 속 날짜를 자동 인식하여 날짜별 분리 저장\n\n"
+        "<b>🌐 웹 대시보드:</b>\n"
+        "• 텔레그램 로그인으로 웹에서 기록 열람 가능\n"
+        "• 달력 뷰, 운동 카테고리별 색상 표시",
         parse_mode="HTML",
     )
 
