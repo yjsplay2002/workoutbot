@@ -201,7 +201,7 @@ def update_record_date(record_id: int, new_date: str, user_id: int) -> bool:
 def get_recent_records(chat_id: int, user_id: int, limit: int = 5) -> list:
     conn = get_conn()
     rows = conn.execute(
-        "SELECT * FROM records WHERE chat_id=? AND user_id=? ORDER BY created_at DESC LIMIT ?",
+        "SELECT * FROM records WHERE chat_id=? AND user_id=? ORDER BY date DESC, created_at DESC LIMIT ?",
         (chat_id, user_id, limit),
     ).fetchall()
     conn.close()
