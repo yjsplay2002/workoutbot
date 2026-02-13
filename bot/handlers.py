@@ -100,6 +100,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🏋️ <b>운동 기록 분석 봇</b>\n\n"
             f"안녕하세요, {user.first_name}님! (체중: {weight}kg, 키: {height}cm)\n\n"
             "운동 기록을 사진이나 텍스트로 보내주세요. 자동으로 분석해드립니다!\n\n"
+            "🌐 웹 대시보드: https://workoutbot-ybbz.onrender.com\n"
             "전체 명령어는 /help 를 확인해주세요.",
             parse_mode="HTML",
         )
@@ -120,6 +121,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "2️⃣ 키 설정: /setheight [cm]\n"
         "   예: /setheight 175\n\n"
         "설정 완료 후 운동 기록을 보내주시면 됩니다! 💪\n"
+        "🌐 웹 대시보드: https://workoutbot-ybbz.onrender.com\n"
         "전체 명령어는 /help 를 확인해주세요.",
         parse_mode="HTML",
     )
