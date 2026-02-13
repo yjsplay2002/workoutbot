@@ -33,6 +33,7 @@ def init_db() -> None:
             chat_id INTEGER NOT NULL,
             name TEXT,
             weight_kg REAL,
+            height_cm REAL,
             created_at TEXT NOT NULL,
             PRIMARY KEY (user_id, chat_id)
         );
@@ -49,7 +50,13 @@ def init_db() -> None:
         conn.execute("ALTER TABLE records ADD COLUMN category TEXT")
         conn.commit()
     except Exception:
-        pass  # column already exists
+        pass
+    # Add height_cm column if missing
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN height_cm REAL")
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 
@@ -96,6 +103,35 @@ def set_weight(user_id: int, chat_id: int, weight_kg: float) -> None:
         )
     conn.commit()
     conn.close()
+
+
+def set_height(user_id: int, chat_id: int, height_cm: float) -> None:
+    conn = get_conn()
+    existing = conn.execute(
+        "SELECT 1 FROM users WHERE user_id=? AND chat_id=?", (user_id, chat_id)
+    ).fetchone()
+    if existing:
+        conn.execute(
+            "UPDATE users SET height_cm=? WHERE user_id=? AND chat_id=?",
+            (height_cm, user_id, chat_id),
+        )
+    else:
+        conn.execute(
+            "INSERT INTO users (user_id, chat_id, name, height_cm, created_at) VALUES (?,?,?,?,?)",
+            (user_id, chat_id, "", height_cm, datetime.utcnow().isoformat()),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_user_height(user_id: int, chat_id: int) -> Optional[float]:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT height_cm FROM users WHERE user_id=? AND chat_id=?",
+        (user_id, chat_id),
+    ).fetchone()
+    conn.close()
+    return row["height_cm"] if row and row["height_cm"] else None
 
 
 def get_user_weight(user_id: int, chat_id: int) -> Optional[float]:

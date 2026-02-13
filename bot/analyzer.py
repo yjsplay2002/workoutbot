@@ -108,8 +108,10 @@ async def extract_from_text(text: str) -> str:
     return resp.choices[0].message.content or ""
 
 
-async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None, history_summary: str = "") -> str:
+async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None, history_summary: str = "", height_cm: Optional[float] = None) -> str:
     weight_info = f"사용자 체중: {weight_kg}kg" if weight_kg else "사용자 체중: 미설정 (70-75kg 남성 기준으로 추정)"
+    if height_cm:
+        weight_info += f", 키: {height_cm}cm"
     history_info = f"\n\n최근 운동 이력:\n{history_summary}" if history_summary else ""
 
     c = get_client()

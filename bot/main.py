@@ -15,6 +15,7 @@ from bot.handlers import (
     cmd_editdate,
     cmd_help,
     cmd_history,
+    cmd_setheight,
     cmd_settrainer,
     cmd_setweight,
     cmd_start,
@@ -45,6 +46,7 @@ def run_bot() -> None:
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("setweight", cmd_setweight))
+    app.add_handler(CommandHandler("setheight", cmd_setheight))
     app.add_handler(CommandHandler("history", cmd_history))
     app.add_handler(CommandHandler("stats", cmd_stats))
     app.add_handler(CommandHandler("analyze", cmd_analyze))

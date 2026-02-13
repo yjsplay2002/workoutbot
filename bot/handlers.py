@@ -21,9 +21,11 @@ from bot.database import (
     get_recent_records,
     get_stats,
     get_today_record,
+    get_user_height,
     get_user_weight,
     merge_record,
     save_record,
+    set_height,
     set_trainer,
     set_weight,
     unset_trainer,
@@ -116,7 +118,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• /delete [ID] — 개별 기록 삭제 (예: /delete 3)\n"
         "• /delete all — 내 기록 전체 삭제\n\n"
         "<b>⚙️ 설정:</b>\n"
-        "• /setweight [kg] — 체중 설정 (칼로리 추정 정확도 향상, 예: /setweight 75)\n\n"
+        "• /setweight [kg] — 체중 설정 (예: /setweight 75)\n"
+        "• /setheight [cm] — 키 설정 (예: /setheight 175)\n\n"
         "<b>👥 그룹 관리 (관리자 전용):</b>\n"
         "• /settrainer — 트레이너 지정 (메시지에 답장)\n"
         "• /unsettrainer — 트레이너 해제 (메시지에 답장)\n\n"
@@ -146,6 +149,23 @@ async def cmd_setweight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
     user = update.effective_user
     set_weight(user.id, update.effective_chat.id, weight)
     await update.message.reply_text(f"✅ 체중이 {weight}kg으로 설정되었습니다.")
+
+
+async def cmd_setheight(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    if not context.args:
+        await update.message.reply_text("사용법: /setheight 175", parse_mode="HTML")
+        return
+    try:
+        height = float(context.args[0])
+        if height < 100 or height > 250:
+            raise ValueError
+    except ValueError:
+        await update.message.reply_text("올바른 키를 입력해주세요 (100-250 cm)")
+        return
+
+    user = update.effective_user
+    set_height(user.id, update.effective_chat.id, height)
+    await update.message.reply_text(f"✅ 키가 {height}cm으로 설정되었습니다.")
 
 
 async def cmd_history(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -200,6 +220,7 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     await update.message.reply_text("🔄 마지막 기록을 재분석 중...")
     try:
         weight = get_user_weight(update.effective_user.id, update.effective_chat.id)
+        height = get_user_height(update.effective_user.id, update.effective_chat.id)
         history = get_recent_records(update.effective_chat.id, update.effective_user.id, 5)
         analysis = await analyze_workout(
             record["structured_md"], weight, format_history_summary(history)
@@ -377,6 +398,7 @@ async def _process_album_after_delay(
         # Group by date extracted from images
         date_groups = group_by_date(all_extracted)
         weight = get_user_weight(user.id, chat_id)
+        height = get_user_height(user.id, chat_id)
         history = get_recent_records(chat_id, user.id, 5)
 
         date_count = len(date_groups)
@@ -388,12 +410,12 @@ async def _process_album_after_delay(
             existing = get_today_record(chat_id, user.id, date)
             if existing:
                 merged = existing["structured_md"] + "\n\n" + combined
-                analysis = await analyze_workout(merged, weight, format_history_summary(history))
+                analysis = await analyze_workout(merged, weight, format_history_summary(history), height_cm=height)
                 kcal = extract_kcal(analysis)
                 category = classify_workout(merged)
                 merge_record(existing["id"], merged, analysis, kcal, category=category)
             else:
-                analysis = await analyze_workout(combined, weight, format_history_summary(history))
+                analysis = await analyze_workout(combined, weight, format_history_summary(history), height_cm=height)
                 kcal = extract_kcal(analysis)
                 category = classify_workout(combined)
                 save_record(chat_id, user.id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
@@ -446,6 +468,7 @@ async def _process_single_photo(
             return
 
         weight = get_user_weight(user.id, chat_id)
+        height = get_user_height(user.id, chat_id)
         history = get_recent_records(chat_id, user.id, 5)
         analysis = await analyze_workout(
             structured, weight, format_history_summary(history)
@@ -493,6 +516,7 @@ async def _process_text_workout(
             return
 
         weight = get_user_weight(user.id, chat_id)
+        height = get_user_height(user.id, chat_id)
         history = get_recent_records(chat_id, user.id, 5)
 
         # Same-day merge
