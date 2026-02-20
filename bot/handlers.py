@@ -17,12 +17,14 @@ from bot.database import (
     add_group_member,
     delete_all_records,
     delete_record,
+    get_group_clients,
     get_last_record,
     get_recent_records,
     get_stats,
     get_today_record,
     get_user_height,
     get_user_weight,
+    is_trainer_in_chat,
     merge_record,
     save_record,
     set_height,
@@ -347,6 +349,37 @@ async def cmd_delete(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         await update.message.reply_text("❌ 삭제 실패 — 해당 기록을 찾을 수 없거나 권한이 없습니다.")
 
 
+async def _resolve_target_user(update: Update, chat_id: int, sender_id: int) -> tuple[int, str | None]:
+    """
+    Determine the actual target user_id for saving records.
+    If sender is a trainer:
+      - reply to client msg → use that client's user_id
+      - only 1 client in group → use that client
+      - multiple clients → return (sender_id, error_msg)
+    Otherwise → use sender_id.
+    Returns (target_user_id, error_message_or_None)
+    """
+    if not is_trainer_in_chat(sender_id, chat_id):
+        return sender_id, None
+
+    # Sender is trainer — find target client
+    # 1. If replying to a specific client's message
+    if update.message.reply_to_message:
+        replied_user = update.message.reply_to_message.from_user
+        if replied_user and not is_trainer_in_chat(replied_user.id, chat_id):
+            return replied_user.id, None
+
+    # 2. Auto-detect if only 1 client in group
+    clients = get_group_clients(chat_id)
+    if len(clients) == 1:
+        return clients[0]["user_id"], None
+    elif len(clients) == 0:
+        return sender_id, "⚠️ 그룹에 등록된 클라이언트가 없습니다."
+    else:
+        names = ", ".join(c.get("name") or f"ID:{c['user_id']}" for c in clients)
+        return sender_id, f"⚠️ 클라이언트가 여러 명입니다. 해당 클라이언트의 메시지에 답장하며 이미지를 보내주세요.\n클라이언트: {names}"
+
+
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Buffer photos for album handling - wait briefly for more photos."""
     if update.effective_user.is_bot:
@@ -355,6 +388,13 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
 
     chat_id = update.effective_chat.id
     user = update.effective_user
+
+    # Resolve actual target user (trainer → client)
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
+
     key = (chat_id, user.id)
 
     # Download this photo
@@ -363,6 +403,8 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     image_bytes = bytes(await file.download_as_bytearray())
 
     if key in _album_buffers:
+        # Update target_user_id (use latest reply target)
+        _album_buffers[key]["target_user_id"] = target_user_id
         # Add to existing buffer
         _album_buffers[key]["images"].append(image_bytes)
         # Reset timer
@@ -386,6 +428,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
             "status_msg": status_msg,
             "update": update,
             "context": context,
+            "target_user_id": target_user_id,
             "timer": asyncio.create_task(
                 _process_album_after_delay(key, update, context)
             ),
@@ -402,8 +445,10 @@ async def _process_album_after_delay(
     if not buf:
         return
 
-    chat_id, user_id = key
+    chat_id, sender_id = key
     user = update.effective_user
+    # Use resolved target user (client), not necessarily the sender (trainer)
+    target_user_id = buf.get("target_user_id", sender_id)
     images = buf["images"]
     status_msg = buf["status_msg"]
 
@@ -412,6 +457,9 @@ async def _process_album_after_delay(
         return
 
     upsert_user(user.id, chat_id, user.full_name)
+    # Ensure target user (client) is also registered
+    if target_user_id != user.id:
+        upsert_user(target_user_id, chat_id, f"client_{target_user_id}")
 
     count = len(images)
     await status_msg.edit_text(f"📸 이미지 {count}장 분석 중...")
@@ -447,9 +495,9 @@ async def _process_album_after_delay(
 
         # Group by date extracted from images
         date_groups = group_by_date(all_extracted)
-        weight = get_user_weight(user.id, chat_id)
-        height = get_user_height(user.id, chat_id)
-        history = get_recent_records(chat_id, user.id, 5)
+        weight = get_user_weight(target_user_id, chat_id)
+        height = get_user_height(target_user_id, chat_id)
+        history = get_recent_records(chat_id, target_user_id, 5)
 
         date_count = len(date_groups)
         await status_msg.edit_text(f"📊 {date_count}개 날짜 분석 중...")
@@ -457,7 +505,7 @@ async def _process_album_after_delay(
         # Analyze each date group IN PARALLEL
         async def analyze_one(date, data_list):
             combined = "\n\n".join(data_list)
-            existing = get_today_record(chat_id, user.id, date)
+            existing = get_today_record(chat_id, target_user_id, date)
             if existing:
                 merged = existing["structured_md"] + "\n\n" + combined
                 analysis = await analyze_workout(merged, weight, format_history_summary(history), height_cm=height)
@@ -468,7 +516,7 @@ async def _process_album_after_delay(
                 analysis = await analyze_workout(combined, weight, format_history_summary(history), height_cm=height)
                 kcal = extract_kcal(analysis)
                 category = classify_workout(combined)
-                save_record(chat_id, user.id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
+                save_record(chat_id, target_user_id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
             return date, analysis
 
         analysis_tasks = [analyze_one(d, dl) for d, dl in sorted(date_groups.items())]
@@ -483,7 +531,8 @@ async def _process_album_after_delay(
             results.append(f"📅 <b>{date}</b>\n{analysis}")
 
         # Send results — one message per date to avoid length issues
-        await status_msg.edit_text(f"✅ {len(results)}개 날짜 분석 완료!")
+        saved_for = f" (클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
+        await status_msg.edit_text(f"✅ {len(results)}개 날짜 분석 완료!{saved_for}")
         for r in results:
             # Split if too long
             if len(r) > 4000:

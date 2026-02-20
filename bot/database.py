@@ -408,6 +408,31 @@ def get_all_records_by_month_for_trainer(user_id: int, year: int, month: int) ->
     return [dict(r) for r in rows]
 
 
+def is_trainer_in_chat(user_id: int, chat_id: int) -> bool:
+    """Check if user is a trainer in this specific chat."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT 1 FROM group_members WHERE chat_id=? AND user_id=? AND is_trainer=1",
+        (chat_id, user_id),
+    ).fetchone()
+    conn.close()
+    return row is not None
+
+
+def get_group_clients(chat_id: int) -> list[dict]:
+    """Get non-trainer members in a group."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT gm.user_id, u.name
+           FROM group_members gm
+           LEFT JOIN users u ON gm.user_id = u.user_id AND gm.chat_id = u.chat_id
+           WHERE gm.chat_id=? AND gm.is_trainer=0""",
+        (chat_id,),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 def get_records_without_category() -> list[dict]:
     """Get records that have no category set."""
     conn = get_conn()
