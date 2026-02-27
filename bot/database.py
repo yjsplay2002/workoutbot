@@ -57,10 +57,16 @@ def init_db() -> None:
         conn.commit()
     except Exception:
         pass
+    # Add username column if missing
+    try:
+        conn.execute("ALTER TABLE users ADD COLUMN username TEXT")
+        conn.commit()
+    except Exception:
+        pass
     conn.close()
 
 
-def upsert_user(user_id: int, chat_id: int, name: str, weight_kg: Optional[float] = None) -> None:
+def upsert_user(user_id: int, chat_id: int, name: str, weight_kg: Optional[float] = None, username: Optional[str] = None) -> None:
     conn = get_conn()
     existing = conn.execute(
         "SELECT weight_kg FROM users WHERE user_id=? AND chat_id=?",
@@ -69,21 +75,32 @@ def upsert_user(user_id: int, chat_id: int, name: str, weight_kg: Optional[float
     if existing:
         if weight_kg is not None:
             conn.execute(
-                "UPDATE users SET name=?, weight_kg=? WHERE user_id=? AND chat_id=?",
-                (name, weight_kg, user_id, chat_id),
+                "UPDATE users SET name=?, weight_kg=?, username=? WHERE user_id=? AND chat_id=?",
+                (name, weight_kg, username, user_id, chat_id),
             )
         else:
             conn.execute(
-                "UPDATE users SET name=? WHERE user_id=? AND chat_id=?",
-                (name, user_id, chat_id),
+                "UPDATE users SET name=?, username=? WHERE user_id=? AND chat_id=?",
+                (name, username, user_id, chat_id),
             )
     else:
         conn.execute(
-            "INSERT INTO users (user_id, chat_id, name, weight_kg, created_at) VALUES (?,?,?,?,?)",
-            (user_id, chat_id, name, weight_kg, datetime.utcnow().isoformat()),
+            "INSERT INTO users (user_id, chat_id, name, weight_kg, username, created_at) VALUES (?,?,?,?,?,?)",
+            (user_id, chat_id, name, weight_kg, username, datetime.utcnow().isoformat()),
         )
     conn.commit()
     conn.close()
+
+
+def get_user_by_username(chat_id: int, username: str) -> Optional[dict]:
+    """username으로 유저 조회 (@ 제외한 소문자)."""
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT user_id, name, username FROM users WHERE chat_id=? AND LOWER(username)=LOWER(?)",
+        (chat_id, username.lstrip("@")),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def set_weight(user_id: int, chat_id: int, weight_kg: float) -> None:

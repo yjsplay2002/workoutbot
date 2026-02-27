@@ -22,6 +22,7 @@ from bot.database import (
     get_recent_records,
     get_stats,
     get_today_record,
+    get_user_by_username,
     get_user_height,
     get_user_weight,
     is_trainer_in_chat,
@@ -45,6 +46,7 @@ def _track_group_member(update: Update) -> None:
     user = update.effective_user
     if chat and user and chat.type in ("group", "supergroup"):
         add_group_member(chat.id, user.id)
+        upsert_user(user.id, chat.id, user.full_name, username=user.username)
 
 
 async def cmd_settrainer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -52,17 +54,42 @@ async def cmd_settrainer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     if chat.type not in ("group", "supergroup"):
         await update.message.reply_text("이 명령어는 그룹에서만 사용 가능합니다.")
         return
-    if not update.message.reply_to_message:
-        await update.message.reply_text("트레이너로 설정할 사용자의 메시지에 답장하세요.\n사용법: /settrainer (답장)")
-        return
     # Check if command issuer is admin
     member = await chat.get_member(update.effective_user.id)
     if member.status not in ("administrator", "creator"):
         await update.message.reply_text("❌ 그룹 관리자만 사용할 수 있습니다.")
         return
-    target = update.message.reply_to_message.from_user
-    set_trainer(chat.id, target.id)
-    await update.message.reply_text(f"✅ {target.full_name}님이 트레이너로 설정되었습니다.")
+
+    target_id, target_name = None, None
+
+    # 방법 1: 답장 방식
+    if update.message.reply_to_message:
+        t = update.message.reply_to_message.from_user
+        target_id, target_name = t.id, t.full_name
+
+    # 방법 2: @멘션 방식 (/settrainer @username)
+    elif context.args:
+        mention = context.args[0].lstrip("@")
+        user_row = get_user_by_username(chat.id, mention)
+        if not user_row:
+            await update.message.reply_text(
+                f"❌ @{mention} 유저를 찾을 수 없습니다.\n"
+                "해당 유저가 아직 이 채팅에서 메시지를 보낸 적이 없으면 등록이 불가능합니다.\n"
+                "또는 메시지에 답장하는 방식을 사용하세요."
+            )
+            return
+        target_id, target_name = user_row["user_id"], user_row["name"]
+
+    else:
+        await update.message.reply_text(
+            "사용법:\n"
+            "• 답장 방식: 트레이너 메시지에 답장 후 /settrainer\n"
+            "• 멘션 방식: /settrainer @유저네임"
+        )
+        return
+
+    set_trainer(chat.id, target_id)
+    await update.message.reply_text(f"✅ {target_name}님이 트레이너로 설정되었습니다.")
 
 
 async def cmd_unsettrainer(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -70,16 +97,40 @@ async def cmd_unsettrainer(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if chat.type not in ("group", "supergroup"):
         await update.message.reply_text("이 명령어는 그룹에서만 사용 가능합니다.")
         return
-    if not update.message.reply_to_message:
-        await update.message.reply_text("트레이너를 해제할 사용자의 메시지에 답장하세요.\n사용법: /unsettrainer (답장)")
-        return
     member = await chat.get_member(update.effective_user.id)
     if member.status not in ("administrator", "creator"):
         await update.message.reply_text("❌ 그룹 관리자만 사용할 수 있습니다.")
         return
-    target = update.message.reply_to_message.from_user
-    unset_trainer(chat.id, target.id)
-    await update.message.reply_text(f"✅ {target.full_name}님의 트레이너 권한이 해제되었습니다.")
+
+    target_id, target_name = None, None
+
+    # 방법 1: 답장 방식
+    if update.message.reply_to_message:
+        t = update.message.reply_to_message.from_user
+        target_id, target_name = t.id, t.full_name
+
+    # 방법 2: @멘션 방식
+    elif context.args:
+        mention = context.args[0].lstrip("@")
+        user_row = get_user_by_username(chat.id, mention)
+        if not user_row:
+            await update.message.reply_text(
+                f"❌ @{mention} 유저를 찾을 수 없습니다.\n"
+                "메시지에 답장하는 방식을 사용하세요."
+            )
+            return
+        target_id, target_name = user_row["user_id"], user_row["name"]
+
+    else:
+        await update.message.reply_text(
+            "사용법:\n"
+            "• 답장 방식: 트레이너 메시지에 답장 후 /unsettrainer\n"
+            "• 멘션 방식: /unsettrainer @유저네임"
+        )
+        return
+
+    unset_trainer(chat.id, target_id)
+    await update.message.reply_text(f"✅ {target_name}님의 트레이너 권한이 해제되었습니다.")
 
 
 # Album buffer: collect multiple photos sent as album
