@@ -1,43 +1,364 @@
 {% extends "base.html" %}
 {% block title %}트레이너 대시보드{% endblock %}
 {% block content %}
-<h1>🏆 트레이너 대시보드</h1>
 
-{% if groups %}
-{% for group in groups %}
-<div style="background:var(--card);border-radius:12px;padding:20px;margin-bottom:24px;border:1px solid var(--border)">
-  <h2 style="margin-top:0">📋 그룹 {{ group.chat_id }}</h2>
-  {% if group.members %}
-  <div style="display:grid;gap:12px;margin-top:12px">
-    {% for m in group.members %}
-    <div style="background:var(--card2);border-radius:8px;padding:14px 16px">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <a href="/user/{{ m.user_id }}" style="font-weight:600;font-size:1.05em">
-          👤 {{ m.name or ('사용자 ' ~ m.user_id) }}
-        </a>
-        {% if m.is_trainer %}<span class="badge">트레이너</span>{% endif %}
-      </div>
-      {% if m.recent_records %}
-      <div style="font-size:.85em;color:var(--text2)">
-        {% for r in m.recent_records %}
-        <div style="margin-top:4px">
-          📅 {{ r.date }}
-          {% if r.estimated_kcal %} — 🔥 {{ r.estimated_kcal|round(0)|int }} kcal{% endif %}
+<style>
+.trainer-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 28px;
+}
+.trainer-header h1 {
+  margin: 0;
+  font-size: 1.6em;
+}
+
+/* Summary cards */
+.summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.summary-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 18px 16px;
+  text-align: center;
+}
+.summary-card .val {
+  font-size: 2em;
+  font-weight: 700;
+  color: var(--accent);
+  line-height: 1.1;
+}
+.summary-card .lbl {
+  font-size: .8em;
+  color: var(--text2);
+  margin-top: 4px;
+}
+
+/* Search */
+.search-bar {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+.search-bar input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  font-size: .95em;
+}
+.search-bar input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Client cards */
+.clients-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 18px;
+}
+
+.client-card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  transition: box-shadow .2s, transform .2s;
+}
+.client-card:hover {
+  box-shadow: 0 4px 20px rgba(0,0,0,.15);
+  transform: translateY(-2px);
+}
+
+.client-card-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+.client-avatar {
+  width: 46px;
+  height: 46px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--accent), #a855f7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.3em;
+  font-weight: 700;
+  color: #fff;
+  flex-shrink: 0;
+}
+.client-name {
+  font-size: 1.05em;
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--text);
+}
+.client-name:hover { color: var(--accent); }
+.client-last-seen {
+  font-size: .78em;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+.client-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--border);
+}
+.client-stat {
+  text-align: center;
+  padding: 12px 8px;
+  border-right: 1px solid var(--border);
+}
+.client-stat:last-child { border-right: none; }
+.client-stat .sv {
+  font-size: 1.25em;
+  font-weight: 700;
+}
+.client-stat .sl {
+  font-size: .72em;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+/* Category badge */
+.cat-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 20px;
+  font-size: .75em;
+  font-weight: 600;
+  color: #fff;
+}
+
+/* Recent records list */
+.client-recent {
+  padding: 12px 18px 14px;
+}
+.client-recent-title {
+  font-size: .78em;
+  color: var(--text2);
+  margin-bottom: 8px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.recent-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: .85em;
+}
+.recent-item:last-child { border-bottom: none; }
+.recent-date { color: var(--text2); }
+.recent-kcal { font-weight: 600; color: var(--accent); }
+
+/* Mini sparkline */
+.sparkline-wrap {
+  padding: 10px 18px 14px;
+  border-top: 1px solid var(--border);
+}
+.sparkline-label {
+  font-size: .74em;
+  color: var(--text2);
+  margin-bottom: 6px;
+}
+.sparkline {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 36px;
+}
+.spark-bar {
+  flex: 1;
+  background: var(--accent);
+  opacity: .7;
+  border-radius: 2px 2px 0 0;
+  min-height: 2px;
+  transition: opacity .2s;
+}
+.spark-bar:hover { opacity: 1; }
+
+.client-footer {
+  padding: 10px 18px;
+  text-align: right;
+  border-top: 1px solid var(--border);
+}
+.btn-view {
+  display: inline-block;
+  padding: 7px 18px;
+  background: var(--accent);
+  color: #fff;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: .85em;
+  font-weight: 600;
+  transition: opacity .2s;
+}
+.btn-view:hover { opacity: .85; }
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text2);
+}
+.empty-state .icon { font-size: 3em; margin-bottom: 12px; }
+
+/* Active indicator */
+.active-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-left: auto;
+}
+.active-dot.green { background: #22c55e; }
+.active-dot.yellow { background: #eab308; }
+.active-dot.red { background: #ef4444; }
+</style>
+
+<div class="trainer-header">
+  <div>
+    <h1>🏆 트레이너 대시보드</h1>
+    <div style="color:var(--text2);font-size:.9em;margin-top:2px">{{ this_month }} 기준</div>
+  </div>
+</div>
+
+<!-- Summary Cards -->
+<div class="summary-grid">
+  <div class="summary-card">
+    <div class="val">{{ clients|length }}</div>
+    <div class="lbl">👤 전체 회원</div>
+  </div>
+  <div class="summary-card">
+    <div class="val">{{ total_monthly }}</div>
+    <div class="lbl">📅 이번 달 세션</div>
+  </div>
+  <div class="summary-card">
+    <div class="val">{{ total_sessions }}</div>
+    <div class="lbl">🏋️ 누적 세션</div>
+  </div>
+  <div class="summary-card">
+    <div class="val">{{ "{:,.0f}".format(total_kcal) }}</div>
+    <div class="lbl">🔥 누적 kcal</div>
+  </div>
+</div>
+
+{% if clients %}
+
+<!-- Search -->
+<div class="search-bar">
+  <input type="text" id="clientSearch" placeholder="🔍 회원 이름 검색..." oninput="filterClients(this.value)">
+</div>
+
+<!-- Client Grid -->
+<div class="clients-grid" id="clientsGrid">
+  {% for c in clients %}
+  {% set name_initial = (c.name or '?')[0]|upper %}
+
+  <div class="client-card" data-name="{{ c.name|lower }}">
+    <div class="client-card-header">
+      <div class="client-avatar">{{ name_initial }}</div>
+      <div style="flex:1">
+        <a href="/user/{{ c.user_id }}" class="client-name">{{ c.name or ('사용자 ' ~ c.user_id) }}</a>
+        <div class="client-last-seen" style="display:flex;align-items:center;gap:6px">
+          <span class="active-dot {{ c.activity }}"></span>
+          {% if c.last_date %}
+            마지막 운동: {{ c.last_date }}
+            {% if c.days_since == 0 %}(오늘)
+            {% elif c.days_since == 1 %}(어제)
+            {% elif c.days_since %}({{ c.days_since }}일 전){% endif %}
+          {% else %}기록 없음{% endif %}
         </div>
-        {% endfor %}
       </div>
-      {% else %}
-      <div style="font-size:.85em;color:var(--text2)">기록 없음</div>
+      {% if c.top_category %}
+      <span class="cat-badge" style="background:{{ get_category_color(c.top_category) }}">{{ c.top_category }}</span>
       {% endif %}
     </div>
-    {% endfor %}
+
+    <div class="client-stats">
+      <div class="client-stat">
+        <div class="sv">{{ c.total_sessions }}</div>
+        <div class="sl">총 세션</div>
+      </div>
+      <div class="client-stat">
+        <div class="sv" style="color:var(--accent)">{{ c.monthly_sessions }}</div>
+        <div class="sl">이번 달</div>
+      </div>
+      <div class="client-stat">
+        <div class="sv">{{ "{:,.0f}".format(c.avg_kcal) }}</div>
+        <div class="sl">평균 kcal</div>
+      </div>
+    </div>
+
+    {% if c.recent %}
+    <div class="client-recent">
+      <div class="client-recent-title">최근 기록</div>
+      {% for r in c.recent %}
+      <div class="recent-item">
+        <span class="recent-date">{{ r.date }}</span>
+        {% if r.category %}
+        <span class="cat-badge" style="background:{{ get_category_color(r.category) }};font-size:.7em">{{ r.category }}</span>
+        {% endif %}
+        {% if r.estimated_kcal %}
+        <span class="recent-kcal">🔥 {{ r.estimated_kcal|round(0)|int }} kcal</span>
+        {% endif %}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+
+    {% if c.weekly %}
+    <div class="sparkline-wrap">
+      <div class="sparkline-label">주간 활동 (최근 8주)</div>
+      <div class="sparkline">
+        {% for w in c.weekly %}
+        {% set pct = ((w.cnt / c.weekly_max) * 100)|int if c.weekly_max > 0 else 8 %}
+        {% set h = [pct, 8]|max %}
+        <div class="spark-bar" style="height:{{ h }}%" title="{{ w.week }}: {{ w.cnt }}회"></div>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+
+    <div class="client-footer">
+      <a href="/user/{{ c.user_id }}" class="btn-view">전체 기록 보기 →</a>
+    </div>
   </div>
-  {% else %}
-  <div class="empty">멤버가 없습니다</div>
-  {% endif %}
+  {% endfor %}
 </div>
-{% endfor %}
+
 {% else %}
-<div class="empty">관리하는 그룹이 없습니다</div>
+<div class="empty-state">
+  <div class="icon">👥</div>
+  <div style="font-size:1.1em;font-weight:600;margin-bottom:8px">등록된 회원이 없습니다</div>
+  <div>그룹에서 <code>/settrainer @회원유저네임</code> 또는 회원 메시지에 답장하여 등록하세요.</div>
+</div>
 {% endif %}
+
+<script>
+function filterClients(query) {
+  const q = query.toLowerCase().trim();
+  document.querySelectorAll('.client-card').forEach(card => {
+    const name = card.dataset.name || '';
+    card.style.display = (!q || name.includes(q)) ? '' : 'none';
+  });
+}
+</script>
+
 {% endblock %}

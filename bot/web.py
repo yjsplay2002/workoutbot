@@ -432,24 +432,110 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
     if not user["is_trainer"]:
         return HTMLResponse("<h1>접근 권한이 없습니다</h1><p>트레이너만 접근할 수 있습니다.</p>", status_code=403)
 
-    groups_data = []
+    conn = get_conn()
+    today = date.today()
+    this_month = today.strftime("%Y-%m")
+
+    clients = []
+    seen_user_ids = set()
+
     for chat_id in user["trainer_groups"]:
         members = get_group_members(chat_id)
-        # Get recent records for each member
-        conn = get_conn()
         for m in members:
+            uid = m["user_id"]
+            if m.get("is_trainer") or uid == user["user_id"]:
+                continue
+            if uid in seen_user_ids:
+                continue
+            seen_user_ids.add(uid)
+
+            # Stats
+            stats = conn.execute(
+                """SELECT COUNT(*) as total, MAX(date) as last_date,
+                          SUM(estimated_kcal) as total_kcal,
+                          AVG(estimated_kcal) as avg_kcal
+                   FROM records WHERE user_id=?""",
+                (uid,)
+            ).fetchone()
+
+            monthly = conn.execute(
+                "SELECT COUNT(*) as cnt FROM records WHERE user_id=? AND strftime('%Y-%m', date)=?",
+                (uid, this_month)
+            ).fetchone()
+
+            # dominant category this month
+            cat_row = conn.execute(
+                """SELECT category, COUNT(*) as cnt FROM records
+                   WHERE user_id=? AND strftime('%Y-%m', date)=? AND category IS NOT NULL
+                   GROUP BY category ORDER BY cnt DESC LIMIT 1""",
+                (uid, this_month)
+            ).fetchone()
+
+            # recent 3 records
             recent = [dict(r) for r in conn.execute(
-                "SELECT * FROM records WHERE user_id=? AND chat_id=? ORDER BY created_at DESC LIMIT 3",
-                (m["user_id"], chat_id)
+                "SELECT * FROM records WHERE user_id=? ORDER BY date DESC LIMIT 3",
+                (uid,)
             ).fetchall()]
-            m["recent_records"] = recent
-        conn.close()
-        groups_data.append({"chat_id": chat_id, "members": members})
+
+            # weekly sessions (last 8 weeks)
+            weekly = [dict(r) for r in conn.execute(
+                """SELECT strftime('%Y-W%W', date) as week, COUNT(*) as cnt, SUM(estimated_kcal) as kcal
+                   FROM records WHERE user_id=? AND estimated_kcal IS NOT NULL
+                   GROUP BY week ORDER BY week DESC LIMIT 8""",
+                (uid,)
+            ).fetchall()]
+            weekly.reverse()
+
+            clients.append({
+                "user_id": uid,
+                "name": m.get("name") or f"사용자 {uid}",
+                "chat_id": chat_id,
+                "total_sessions": stats["total"] if stats else 0,
+                "last_date": stats["last_date"] if stats else None,
+                "total_kcal": round(stats["total_kcal"], 0) if stats and stats["total_kcal"] else 0,
+                "avg_kcal": round(stats["avg_kcal"], 0) if stats and stats["avg_kcal"] else 0,
+                "monthly_sessions": monthly["cnt"] if monthly else 0,
+                "top_category": cat_row["category"] if cat_row else None,
+                "recent": recent,
+                "weekly": weekly,
+            })
+
+    # Compute days since last session + activity dot
+    for c in clients:
+        if c["last_date"]:
+            try:
+                delta = (today - datetime.strptime(c["last_date"], "%Y-%m-%d").date()).days
+                c["days_since"] = delta
+                c["activity"] = "green" if delta <= 7 else ("yellow" if delta <= 30 else "red")
+            except Exception:
+                c["days_since"] = None
+                c["activity"] = "red"
+        else:
+            c["days_since"] = None
+            c["activity"] = "red"
+
+        # weekly max for sparkline
+        c["weekly_max"] = max((w["cnt"] for w in c["weekly"]), default=1)
+
+    # Sort by last_date desc (most active first)
+    clients.sort(key=lambda c: c["last_date"] or "0000-00-00", reverse=True)
+
+    # Summary totals
+    total_sessions = sum(c["total_sessions"] for c in clients)
+    total_monthly = sum(c["monthly_sessions"] for c in clients)
+    total_kcal = sum(c["total_kcal"] for c in clients)
+
+    conn.close()
 
     return templates.TemplateResponse("trainer.html", {
         "request": request,
         "user": user,
-        "groups": groups_data,
+        "clients": clients,
+        "total_sessions": total_sessions,
+        "total_monthly": total_monthly,
+        "total_kcal": total_kcal,
+        "this_month": today.strftime("%Y년 %m월"),
+        "get_category_color": get_category_color,
     })
 
 
