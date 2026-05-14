@@ -76,7 +76,16 @@ def run_bot() -> None:
     app.add_handler(CommandHandler("plan", cmd_plan))
     app.add_handler(CommandHandler("today", cmd_today))
 
-    # Photo handler — all photos
+    # Photo + caption command routing (CommandHandler doesn't match message.caption).
+    # These must be registered BEFORE the generic photo handler so a captioned photo
+    # is dispatched to the right flow instead of falling through to the workout extractor.
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"^/inbody(\s|$|@)"), cmd_inbody))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"^/breakfast(\s|$|@)"), cmd_breakfast))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"^/lunch(\s|$|@)"), cmd_lunch))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"^/dinner(\s|$|@)"), cmd_dinner))
+    app.add_handler(MessageHandler(filters.PHOTO & filters.CaptionRegex(r"^/snack(\s|$|@)"), cmd_snack))
+
+    # Photo handler — all other photos (default: workout extraction)
     app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_photo))
 
     # Text handler — non-command text

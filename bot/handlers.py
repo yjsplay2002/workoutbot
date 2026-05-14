@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
@@ -840,6 +841,10 @@ async def _cmd_meal(update: Update, context: ContextTypes.DEFAULT_TYPE, meal_typ
 
     if not text_input and context.args:
         text_input = " ".join(context.args)
+
+    # If caption starts with /<meal_type> (e.g. "/lunch 닭가슴살"), strip the leading command
+    # so the LLM only sees the food description, not the slash command.
+    text_input = re.sub(rf"^/{meal_type}(@\w+)?\s*", "", text_input).strip()
 
     if not photo and not text_input:
         meal_label = {"breakfast": "아침", "lunch": "점심", "dinner": "저녁", "snack": "간식"}[meal_type]
