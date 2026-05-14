@@ -181,7 +181,7 @@ async def login_page(request: Request):
     user = get_current_user(request)
     if user:
         return RedirectResponse("/", status_code=302)
-    return templates.TemplateResponse("login.html", {
+    return templates.TemplateResponse(request, "login.html", {
         "request": request,
         "bot_username": bot_username,
         "web_url": WEB_URL,
@@ -217,7 +217,7 @@ async def logout():
 @app.get("/policy", response_class=HTMLResponse)
 async def policy_page(request: Request):
     user = get_current_user(request)
-    return templates.TemplateResponse("policy.html", {"request": request, "user": user})
+    return templates.TemplateResponse(request, "policy.html", {"request": request, "user": user})
 
 
 # ── HTML Pages ───────────────────────────────────────────────
@@ -342,7 +342,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
     else:
         next_year, next_month = cal_year, cal_month + 1
 
-    return templates.TemplateResponse("dashboard.html", {
+    return templates.TemplateResponse(request, "dashboard.html", {
         "request": request,
         "user": user,
         "total_records": total,
@@ -402,7 +402,7 @@ async def records_page(request: Request, date_from: Optional[str] = None, date_t
     ).fetchall()]
     conn.close()
     total_pages = max(1, (total + per_page - 1) // per_page)
-    return templates.TemplateResponse("records.html", {
+    return templates.TemplateResponse(request, "records.html", {
         "request": request,
         "user": user,
         "records": rows,
@@ -433,7 +433,7 @@ async def record_detail(request: Request, record_id: int, user: dict = Depends(r
             if record["chat_id"] not in user_groups:
                 return HTMLResponse("<h1>접근 권한이 없습니다</h1>", status_code=403)
 
-    return templates.TemplateResponse("record_detail.html", {
+    return templates.TemplateResponse(request, "record_detail.html", {
         "request": request,
         "user": user,
         "record": record,
@@ -470,7 +470,7 @@ async def user_page(request: Request, target_user_id: int, user: dict = Depends(
     ).fetchall()]
     weekly.reverse()
     conn.close()
-    return templates.TemplateResponse("user.html", {
+    return templates.TemplateResponse(request, "user.html", {
         "request": request,
         "user": user,
         "target_user": dict(target_user) if target_user else {"user_id": target_user_id, "name": f"사용자 {target_user_id}", "weight_kg": None},
@@ -580,7 +580,7 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
 
     conn.close()
 
-    return templates.TemplateResponse("trainer.html", {
+    return templates.TemplateResponse(request, "trainer.html", {
         "request": request,
         "user": user,
         "clients": clients,
@@ -681,7 +681,7 @@ async def goals_page(request: Request, user: dict = Depends(require_user)):
 
     latest = get_latest_inbody(user["user_id"])
 
-    return templates.TemplateResponse("goals.html", {
+    return templates.TemplateResponse(request, "goals.html", {
         "request": request,
         "user": user,
         "goals": goals,
@@ -768,7 +768,7 @@ async def api_update_goal(goal_id: int, request: Request, user: dict = Depends(r
 @app.get("/inbody", response_class=HTMLResponse)
 async def inbody_page(request: Request, user: dict = Depends(require_user)):
     history = get_inbody_history(user["user_id"], limit=100)
-    return templates.TemplateResponse("inbody.html", {
+    return templates.TemplateResponse(request, "inbody.html", {
         "request": request,
         "user": user,
         "history": history,
@@ -793,7 +793,7 @@ async def meals_page(request: Request, date_str: Optional[str] = Query(None, ali
         today_str = date.today().strftime("%Y-%m-%d")
     today_meals = get_meals_for_date(user["user_id"], today_str)
     recent = get_recent_meals(user["user_id"], 30)
-    return templates.TemplateResponse("meals.html", {
+    return templates.TemplateResponse(request, "meals.html", {
         "request": request,
         "user": user,
         "today_str": today_str,
