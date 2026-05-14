@@ -1,4 +1,5 @@
 import base64
+import json
 import os
 import re
 from typing import Optional
@@ -6,6 +7,9 @@ from typing import Optional
 from openai import AsyncOpenAI
 
 client: Optional[AsyncOpenAI] = None
+
+MAIN_MODEL = os.environ.get("MAIN_MODEL", "gpt-5.5")
+VISION_MODEL = os.environ.get("VISION_MODEL", MAIN_MODEL)
 
 
 def get_client() -> AsyncOpenAI:
@@ -79,7 +83,7 @@ async def extract_from_image(image_bytes: bytes) -> str:
     b64 = base64.b64encode(image_bytes).decode()
     c = get_client()
     resp = await c.chat.completions.create(
-        model="gpt-4o",
+        model=VISION_MODEL,
         messages=[
             {"role": "system", "content": EXTRACT_SYSTEM},
             {
@@ -98,7 +102,7 @@ async def extract_from_image(image_bytes: bytes) -> str:
 async def extract_from_text(text: str) -> str:
     c = get_client()
     resp = await c.chat.completions.create(
-        model="gpt-4o",
+        model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": EXTRACT_SYSTEM},
             {"role": "user", "content": text},
@@ -116,7 +120,7 @@ async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None,
 
     c = get_client()
     resp = await c.chat.completions.create(
-        model="gpt-4o",
+        model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": ANALYSIS_SYSTEM},
             {
@@ -279,3 +283,190 @@ def extract_kcal(analysis: str) -> Optional[float]:
         if m:
             return float(m.group(1))
     return None
+
+
+# ── InBody extraction ────────────────────────────────────────
+
+INBODY_SYSTEM = (
+    "You are an InBody body composition analyzer. "
+    "Extract measurements from this InBody (체성분 분석) image and return STRICT JSON only. "
+    "All numeric fields use float values (no units in the value). "
+    "If a field is not visible, omit it from the JSON.\n\n"
+    "Required schema:\n"
+    "{\n"
+    '  "measured_at": "YYYY-MM-DD or null",\n'
+    '  "weight_kg": float,\n'
+    '  "skeletal_muscle_kg": float,  // 골격근량\n'
+    '  "body_fat_kg": float,  // 체지방량\n'
+    '  "body_fat_pct": float,  // 체지방률 (%)\n'
+    '  "bmi": float,\n'
+    '  "bmr_kcal": float,  // 기초대사량\n'
+    '  "body_water_kg": float,  // 체수분\n'
+    '  "protein_kg": float,\n'
+    '  "mineral_kg": float,\n'
+    '  "visceral_fat_level": float\n'
+    "}\n\n"
+    "Date hint: two-digit years like '26' mean 2026. Default to 2026 if year is ambiguous.\n"
+    "If the image is NOT an InBody / body composition sheet, reply exactly: NOT_INBODY"
+)
+
+
+async def extract_inbody(image_bytes: bytes) -> dict:
+    """Extract InBody metrics from an image. Returns dict or {} if invalid."""
+    b64 = base64.b64encode(image_bytes).decode()
+    c = get_client()
+    resp = await c.chat.completions.create(
+        model=VISION_MODEL,
+        messages=[
+            {"role": "system", "content": INBODY_SYSTEM},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": "이 인바디 이미지에서 측정값을 JSON으로만 추출하세요."},
+                ],
+            },
+        ],
+        max_tokens=600,
+        response_format={"type": "json_object"},
+    )
+    content = resp.choices[0].message.content or ""
+    if "NOT_INBODY" in content:
+        return {}
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        m = re.search(r'\{.*\}', content, re.DOTALL)
+        if not m:
+            return {}
+        try:
+            data = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return {}
+    return data if isinstance(data, dict) else {}
+
+
+# ── Meal extraction ──────────────────────────────────────────
+
+MEAL_SYSTEM = (
+    "You are a Korean nutritionist. Analyze the meal and return STRICT JSON only.\n\n"
+    "Schema:\n"
+    "{\n"
+    '  "items": [{"name": "음식명", "amount": "1인분/200g 등", "kcal": int}],\n'
+    '  "total_kcal": int,\n'
+    '  "protein_g": float,\n'
+    '  "carbs_g": float,\n'
+    '  "fat_g": float,\n'
+    '  "summary_md": "<b>식단</b>...HTML 짧은 요약 (Korean, use <b>, <i>, • bullets, no markdown, no tables)",\n'
+    '  "analysis_md": "<b>영양 평가</b>...HTML 분석 + 개선 추천 (Korean, 4-6 lines)"\n'
+    "}\n\n"
+    "If you cannot identify any food, return: {\"items\": [], \"total_kcal\": 0, \"summary_md\": \"\", \"analysis_md\": \"식단을 인식하지 못했습니다.\"}"
+)
+
+
+async def extract_meal_from_image(image_bytes: bytes, meal_type: str, user_ctx: str = "") -> dict:
+    b64 = base64.b64encode(image_bytes).decode()
+    c = get_client()
+    user_text = f"식사 종류: {meal_type}\n{user_ctx}\n이 식단 사진을 분석해주세요."
+    resp = await c.chat.completions.create(
+        model=VISION_MODEL,
+        messages=[
+            {"role": "system", "content": MEAL_SYSTEM},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": user_text},
+                ],
+            },
+        ],
+        max_tokens=900,
+        response_format={"type": "json_object"},
+    )
+    return _safe_json(resp.choices[0].message.content or "")
+
+
+async def extract_meal_from_text(text: str, meal_type: str, user_ctx: str = "") -> dict:
+    c = get_client()
+    resp = await c.chat.completions.create(
+        model=MAIN_MODEL,
+        messages=[
+            {"role": "system", "content": MEAL_SYSTEM},
+            {"role": "user", "content": f"식사 종류: {meal_type}\n{user_ctx}\n식단 내용: {text}"},
+        ],
+        max_tokens=900,
+        response_format={"type": "json_object"},
+    )
+    return _safe_json(resp.choices[0].message.content or "")
+
+
+def _safe_json(content: str) -> dict:
+    try:
+        data = json.loads(content)
+        return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        m = re.search(r'\{.*\}', content, re.DOTALL)
+        if not m:
+            return {}
+        try:
+            data = json.loads(m.group(0))
+            return data if isinstance(data, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+
+
+# ── Daily plan / summary ─────────────────────────────────────
+
+PLAN_SYSTEM = (
+    "You are a certified Korean fitness coach and nutritionist. "
+    "Given a user's primary goal, current InBody, BMR, recent workout activity, and remaining days, "
+    "compute the daily plan and return STRICT JSON only.\n\n"
+    "Schema:\n"
+    "{\n"
+    '  "target_kcal_intake": int,    // 하루 섭취 권장량\n'
+    '  "target_kcal_burn": int,      // 하루 권장 운동 칼로리 소모\n'
+    '  "breakfast": "HTML 추천 (식단 + 칼로리). <b>, •, <i> 사용 가능. markdown 없음",\n'
+    '  "lunch": "HTML 추천",\n'
+    '  "dinner": "HTML 추천",\n'
+    '  "rationale_md": "HTML 계산 근거 + 가이드 (4-7 lines, Korean). 왜 이 칼로리인지, 매크로 비율, 운동 강도 등"\n'
+    "}"
+)
+
+
+async def generate_daily_plan(context_md: str) -> dict:
+    c = get_client()
+    resp = await c.chat.completions.create(
+        model=MAIN_MODEL,
+        messages=[
+            {"role": "system", "content": PLAN_SYSTEM},
+            {"role": "user", "content": context_md},
+        ],
+        max_tokens=1500,
+        response_format={"type": "json_object"},
+    )
+    return _safe_json(resp.choices[0].message.content or "")
+
+
+SUMMARY_SYSTEM = (
+    "You are a certified Korean fitness coach. Generate the user's end-of-day report based on the day's "
+    "workout records, meals, and active goals.\n\n"
+    "Return STRICT JSON only:\n"
+    "{\n"
+    '  "summary_md": "오늘 운동+식단 종합 요약. HTML (<b>, •, <i>). 4-8 lines. Korean.",\n'
+    '  "goal_assessment_md": "활성 목표별로 오늘 진행 여부 평가. 잘된 점/부족한 점/내일 권장 사항. HTML, 4-8 lines."\n'
+    "}"
+)
+
+
+async def generate_daily_summary(context_md: str) -> dict:
+    c = get_client()
+    resp = await c.chat.completions.create(
+        model=MAIN_MODEL,
+        messages=[
+            {"role": "system", "content": SUMMARY_SYSTEM},
+            {"role": "user", "content": context_md},
+        ],
+        max_tokens=1400,
+        response_format={"type": "json_object"},
+    )
+    return _safe_json(resp.choices[0].message.content or "")

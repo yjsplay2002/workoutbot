@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}인바디 기록{% endblock %}
+{% block content %}
+<h1>📏 인바디 기록</h1>
+
+<div style="background:var(--card2);border-radius:8px;padding:14px 20px;margin-bottom:24px;color:var(--text2);font-size:.9em">
+  💡 텔레그램에서 인바디 사진을 보내면서 캡션에 <code>/inbody</code>를 입력하세요.
+</div>
+
+{% if history %}
+{% set latest = history[0] %}
+<h2>최근 측정 ({{ latest.measured_at }})</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:14px">
+    {% set fields = [
+      ("weight_kg", "체중", "kg"),
+      ("skeletal_muscle_kg", "골격근량", "kg"),
+      ("body_fat_kg", "체지방량", "kg"),
+      ("body_fat_pct", "체지방률", "%"),
+      ("bmr_kcal", "기초대사량", "kcal"),
+      ("bmi", "BMI", ""),
+      ("body_water_kg", "체수분", "kg"),
+      ("protein_kg", "단백질", "kg"),
+      ("mineral_kg", "무기질", "kg"),
+      ("visceral_fat_level", "내장지방", ""),
+    ] %}
+    {% for key, label, unit in fields %}
+      {% if latest[key] is not none %}
+      <div>
+        <div style="font-size:.8em;color:var(--text2)">{{ label }}</div>
+        <div style="font-size:1.3em;font-weight:700;color:var(--accent2)">{{ latest[key] }}<span style="font-size:.65em">{{ unit }}</span></div>
+      </div>
+      {% endif %}
+    {% endfor %}
+  </div>
+</div>
+
+{% if history|length > 1 %}
+<h2>이력 ({{ history|length }}건)</h2>
+<div style="background:var(--card);border-radius:12px;border:1px solid var(--border);overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;min-width:700px">
+    <thead>
+      <tr style="background:var(--card2)">
+        <th style="padding:10px;text-align:left;font-size:.85em;color:var(--text2)">측정일</th>
+        <th style="padding:10px;text-align:right;font-size:.85em;color:var(--text2)">체중</th>
+        <th style="padding:10px;text-align:right;font-size:.85em;color:var(--text2)">골격근량</th>
+        <th style="padding:10px;text-align:right;font-size:.85em;color:var(--text2)">체지방률</th>
+        <th style="padding:10px;text-align:right;font-size:.85em;color:var(--text2)">BMR</th>
+        <th style="padding:10px"></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for h in history %}
+      <tr style="border-top:1px solid var(--border)">
+        <td style="padding:10px">{{ h.measured_at }}</td>
+        <td style="padding:10px;text-align:right">{{ h.weight_kg or '-' }}</td>
+        <td style="padding:10px;text-align:right">{{ h.skeletal_muscle_kg or '-' }}</td>
+        <td style="padding:10px;text-align:right">{{ h.body_fat_pct or '-' }}</td>
+        <td style="padding:10px;text-align:right">{{ h.bmr_kcal or '-' }}</td>
+        <td style="padding:10px;text-align:right">
+          <button onclick="delIb({{ h.id }})" style="background:transparent;color:var(--red);border:none;cursor:pointer;font-size:.85em">삭제</button>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{% else %}
+<div class="empty">아직 인바디 기록이 없습니다 📏</div>
+{% endif %}
+
+<script>
+async function delIb(id) {
+  if (!confirm('이 인바디 기록을 삭제하시겠습니까?')) return;
+  const r = await fetch(`/api/inbody/${id}/delete`, {method:'POST'});
+  const data = await r.json();
+  if (data.ok) location.reload();
+  else alert(data.error || '삭제 실패');
+}
+</script>
+{% endblock %}

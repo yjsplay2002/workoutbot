@@ -57,9 +57,12 @@ h2{font-size:1.2em;margin:24px 0 12px;color:var(--text)}
 <nav>
 <span class="logo">🏋️ 운동 기록</span>
 <a href="/">대시보드</a>
-<a href="/records">전체 기록</a>
+<a href="/goals">목표</a>
+<a href="/inbody">인바디</a>
+<a href="/meals">식단</a>
+<a href="/records">운동 기록</a>
 {% if user and user.is_trainer %}
-<a href="/trainer">트레이너 대시보드</a>
+<a href="/trainer">트레이너</a>
 {% endif %}
 <span class="spacer"></span>
 {% if user %}

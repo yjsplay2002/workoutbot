@@ -1,4 +1,5 @@
-python-telegram-bot==21.3
+python-telegram-bot[job-queue]==21.3
+tzdata
 openai>=1.50.0
 python-dotenv
 fastapi

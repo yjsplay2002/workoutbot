@@ -1,6 +1,7 @@
 import asyncio
+import json
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import ContextTypes
 
@@ -9,30 +10,54 @@ from bot.analyzer import (
     classify_workout,
     extract_from_image,
     extract_from_text,
+    extract_inbody,
     extract_kcal,
+    extract_meal_from_image,
+    extract_meal_from_text,
+    generate_daily_plan,
+    generate_daily_summary,
     group_by_date,
     is_workout_text,
 )
 from bot.database import (
+    GOAL_METRICS,
     add_group_member,
+    create_goal,
     delete_all_records,
+    delete_goal,
+    delete_inbody,
+    delete_meal,
     delete_record,
+    get_daily_plan,
+    get_daily_summary,
     get_group_clients,
+    get_inbody_history,
     get_last_record,
+    get_latest_inbody,
+    get_meals_for_date,
+    get_primary_goal,
     get_recent_records,
+    get_records_for_date,
     get_stats,
     get_today_record,
     get_user_by_username,
     get_user_height,
     get_user_weight,
     is_trainer_in_chat,
+    list_goals,
     merge_record,
+    save_inbody,
+    save_meal,
     save_record,
     set_height,
+    set_primary_goal,
     set_trainer,
     set_weight,
     unset_trainer,
+    update_goal_status,
     update_record_date,
+    upsert_daily_plan,
+    upsert_daily_summary,
     upsert_user,
 )
 from bot.utils import check_rate_limit, format_history_summary
@@ -183,31 +208,37 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "📖 <b>도움말</b>\n\n"
-        "이 봇은 그룹 채팅이나 DM에서 운동 기록을 자동 감지하고 AI 전문가 분석을 제공합니다.\n\n"
-        "<b>📋 기본 명령어:</b>\n"
+        "운동·인바디·식단을 모두 기록하고 목표 달성까지 AI가 코칭합니다.\n\n"
+        "<b>📋 기본:</b>\n"
         "• /start — 봇 소개\n"
         "• /help — 이 도움말\n\n"
-        "<b>📊 기록 조회:</b>\n"
-        "• /history — 최근 5개 운동 기록 요약\n"
-        "• /stats — 전체 운동 통계 (세션수, 평균/총 칼로리)\n"
-        "• /analyze — 마지막 기록 재분석 (메시지에 답장하면 해당 메시지 분석)\n\n"
-        "<b>✏️ 기록 관리:</b>\n"
-        "• /editdate [ID] [날짜] — 기록 날짜 수정 (예: /editdate 3 2026-01-24)\n"
-        "• /delete [ID] — 개별 기록 삭제 (예: /delete 3)\n"
-        "• /delete all — 내 기록 전체 삭제\n\n"
+        "<b>📊 운동 기록:</b>\n"
+        "• 사진/텍스트를 보내면 자동 분석\n"
+        "• /history — 최근 5개\n"
+        "• /stats — 전체 통계\n"
+        "• /analyze — 마지막 기록 재분석\n"
+        "• /editdate [ID] [날짜] — 기록 날짜 수정\n"
+        "• /delete [ID] / /delete all — 삭제\n\n"
+        "<b>📏 인바디:</b>\n"
+        "• /inbody — 인바디 사진과 함께 (캡션 또는 답장)\n\n"
+        "<b>🍽️ 식단:</b>\n"
+        "• /breakfast, /lunch, /dinner, /snack\n"
+        "  예: /lunch 닭가슴살 200g + 현미밥\n"
+        "  예: 사진에 캡션 /dinner\n\n"
+        "<b>🎯 목표:</b>\n"
+        "• /goal add 체중 75 2026-08-01\n"
+        "• /goal add 체지방률 15 2026-09-01\n"
+        "• /goal list / /goal primary [ID] / /goal done [ID] / /goal del [ID]\n\n"
+        "<b>📅 일일 코칭:</b>\n"
+        "• /plan — 오늘 권장 칼로리·식단 (LLM 생성)\n"
+        "• /today — 오늘 요약 미리보기\n"
+        "• 매일 <b>오후 9시(KST)</b> 자동으로 그룹 채팅에 일일 요약·목표 평가 전송\n\n"
         "<b>⚙️ 설정:</b>\n"
-        "• /setweight [kg] — 체중 설정 (예: /setweight 75)\n"
-        "• /setheight [cm] — 키 설정 (예: /setheight 175)\n\n"
+        "• /setweight [kg], /setheight [cm]\n\n"
         "<b>👥 그룹 관리 (관리자 전용):</b>\n"
-        "• /settrainer — 트레이너 지정 (메시지에 답장)\n"
-        "• /unsettrainer — 트레이너 해제 (메시지에 답장)\n\n"
-        "<b>📸 자동 감지:</b>\n"
-        "• 운동 기록 이미지를 보내면 자동 분석 (여러 장 OK)\n"
-        "• 운동 관련 텍스트를 입력하면 자동 감지 후 분석\n"
-        "• 이미지 속 날짜를 자동 인식하여 날짜별 분리 저장\n\n"
+        "• /settrainer, /unsettrainer (답장 또는 @멘션)\n\n"
         "<b>🌐 웹 대시보드:</b>\n"
-        "• 텔레그램 로그인으로 웹에서 기록 열람 가능\n"
-        "• 달력 뷰, 운동 카테고리별 색상 표시\n"
+        "• 목표 카드 · 인바디 추이 · 일일 계획 · 식단 일지\n"
         "• https://workoutbot-ybbz.onrender.com",
         parse_mode="HTML",
     )
@@ -696,3 +727,622 @@ async def _process_text_workout(
     except Exception as e:
         logger.error(f"Text analysis error: {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+# ════════════════════════════════════════════════════════════
+# InBody
+# ════════════════════════════════════════════════════════════
+
+async def cmd_inbody(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Analyze an InBody image. Usage: send image with /inbody caption, or reply to image with /inbody."""
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    _track_group_member(update)
+
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
+
+    # Get image from current message or replied message
+    photo = None
+    if update.message.photo:
+        photo = update.message.photo[-1]
+    elif update.message.reply_to_message and update.message.reply_to_message.photo:
+        photo = update.message.reply_to_message.photo[-1]
+
+    if not photo:
+        await update.message.reply_text(
+            "사용법:\n"
+            "• 인바디 사진을 보낼 때 캡션에 /inbody 입력\n"
+            "• 또는 인바디 사진에 답장하며 /inbody 입력"
+        )
+        return
+
+    status_msg = await update.message.reply_text("📊 인바디 분석 중...")
+
+    try:
+        file = await context.bot.get_file(photo.file_id)
+        image_bytes = bytes(await file.download_as_bytearray())
+
+        metrics = await extract_inbody(image_bytes)
+        if not metrics:
+            await status_msg.edit_text("❌ 인바디 이미지로 인식되지 않습니다.")
+            return
+
+        measured_at = metrics.get("measured_at") or datetime.now().strftime("%Y-%m-%d")
+        # Normalize date
+        try:
+            datetime.strptime(measured_at, "%Y-%m-%d")
+        except (ValueError, TypeError):
+            measured_at = datetime.now().strftime("%Y-%m-%d")
+
+        # Filter to known keys for save
+        clean_metrics = {k: metrics.get(k) for k in [
+            "weight_kg", "skeletal_muscle_kg", "body_fat_kg", "body_fat_pct",
+            "bmi", "bmr_kcal", "body_water_kg", "protein_kg", "mineral_kg", "visceral_fat_level",
+        ] if metrics.get(k) is not None}
+
+        save_inbody(chat_id, target_user_id, measured_at, clean_metrics, json.dumps(metrics, ensure_ascii=False))
+
+        lines = [f"✅ <b>인바디 저장 완료</b> ({measured_at})"]
+        label_map = {
+            "weight_kg": ("체중", "kg"),
+            "skeletal_muscle_kg": ("골격근량", "kg"),
+            "body_fat_kg": ("체지방량", "kg"),
+            "body_fat_pct": ("체지방률", "%"),
+            "bmi": ("BMI", ""),
+            "bmr_kcal": ("기초대사량", "kcal"),
+            "body_water_kg": ("체수분", "kg"),
+            "protein_kg": ("단백질", "kg"),
+            "mineral_kg": ("무기질", "kg"),
+            "visceral_fat_level": ("내장지방 레벨", ""),
+        }
+        for key, (label, unit) in label_map.items():
+            v = clean_metrics.get(key)
+            if v is not None:
+                lines.append(f"• {label}: <b>{v}</b>{unit}")
+
+        suffix = f"\n\n(클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
+        await status_msg.edit_text("\n".join(lines) + suffix, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"InBody analysis error: {e}")
+        await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+# ════════════════════════════════════════════════════════════
+# Meals
+# ════════════════════════════════════════════════════════════
+
+async def _cmd_meal(update: Update, context: ContextTypes.DEFAULT_TYPE, meal_type: str) -> None:
+    """Generic meal handler. meal_type: breakfast | lunch | dinner | snack."""
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    _track_group_member(update)
+
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
+
+    # Get image from current or replied message, or text args / replied text
+    photo = None
+    text_input = ""
+
+    if update.message.photo:
+        photo = update.message.photo[-1]
+        text_input = update.message.caption or ""
+    elif update.message.reply_to_message:
+        if update.message.reply_to_message.photo:
+            photo = update.message.reply_to_message.photo[-1]
+        elif update.message.reply_to_message.text:
+            text_input = update.message.reply_to_message.text
+
+    if not text_input and context.args:
+        text_input = " ".join(context.args)
+
+    if not photo and not text_input:
+        meal_label = {"breakfast": "아침", "lunch": "점심", "dinner": "저녁", "snack": "간식"}[meal_type]
+        await update.message.reply_text(
+            f"사용법 ({meal_label}):\n"
+            f"• /{meal_type} 닭가슴살 200g, 현미밥 한공기\n"
+            f"• 사진에 캡션 /{meal_type}\n"
+            f"• 사진에 답장하며 /{meal_type}"
+        )
+        return
+
+    status_msg = await update.message.reply_text("🍽️ 식단 분석 중...")
+
+    try:
+        weight = get_user_weight(target_user_id, chat_id)
+        height = get_user_height(target_user_id, chat_id)
+        ctx_lines = []
+        if weight:
+            ctx_lines.append(f"사용자 체중: {weight}kg")
+        if height:
+            ctx_lines.append(f"키: {height}cm")
+        user_ctx = "\n".join(ctx_lines)
+
+        if photo:
+            file = await context.bot.get_file(photo.file_id)
+            image_bytes = bytes(await file.download_as_bytearray())
+            data = await extract_meal_from_image(image_bytes, meal_type, user_ctx)
+            raw = f"[image] {text_input}".strip()
+        else:
+            data = await extract_meal_from_text(text_input, meal_type, user_ctx)
+            raw = text_input
+
+        if not data or not data.get("items"):
+            await status_msg.edit_text("❌ 식단을 인식하지 못했습니다.")
+            return
+
+        items_md = "\n".join(
+            f"• {it.get('name', '')} ({it.get('amount', '')}) — {it.get('kcal', '?')}kcal"
+            for it in data.get("items", [])
+        )
+        structured_md = data.get("summary_md", "") or items_md
+        analysis_md = data.get("analysis_md", "")
+        kcal = data.get("total_kcal")
+        macros = {
+            "protein_g": data.get("protein_g"),
+            "carbs_g": data.get("carbs_g"),
+            "fat_g": data.get("fat_g"),
+        }
+
+        date = datetime.now().strftime("%Y-%m-%d")
+        save_meal(
+            chat_id, target_user_id, date, meal_type, raw,
+            structured_md, kcal, macros, analysis_md,
+        )
+
+        meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
+        kcal_str = f"{int(kcal)} kcal" if kcal else "?"
+        body = [
+            f"{meal_label} ({date}) — <b>{kcal_str}</b>",
+            "",
+            items_md,
+        ]
+        if analysis_md:
+            body += ["", analysis_md]
+        suffix = f"\n\n(클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
+        await status_msg.edit_text("\n".join(body) + suffix, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Meal analysis error: {e}")
+        await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+async def cmd_breakfast(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_meal(update, context, "breakfast")
+
+
+async def cmd_lunch(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_meal(update, context, "lunch")
+
+
+async def cmd_dinner(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_meal(update, context, "dinner")
+
+
+async def cmd_snack(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    await _cmd_meal(update, context, "snack")
+
+
+# ════════════════════════════════════════════════════════════
+# Goals
+# ════════════════════════════════════════════════════════════
+
+GOAL_METRIC_ALIASES = {
+    "체중": "weight", "weight": "weight", "kg": "weight",
+    "체지방률": "body_fat_pct", "체지방": "body_fat_pct", "bodyfat": "body_fat_pct", "fat": "body_fat_pct", "bf%": "body_fat_pct", "bf": "body_fat_pct",
+    "체지방량": "body_fat_kg", "지방량": "body_fat_kg",
+    "골격근량": "skeletal_muscle_kg", "근육": "skeletal_muscle_kg", "근육량": "skeletal_muscle_kg", "muscle": "skeletal_muscle_kg",
+}
+
+
+def _resolve_metric(raw: str) -> str | None:
+    key = raw.strip().lower()
+    if key in GOAL_METRIC_ALIASES:
+        return GOAL_METRIC_ALIASES[key]
+    if key in GOAL_METRICS:
+        return key
+    return None
+
+
+def _format_goal_line(g: dict) -> str:
+    label, unit = GOAL_METRICS.get(g["metric"], (g["metric"], ""))
+    star = "⭐ " if g["is_primary"] else ""
+    return (
+        f"{star}ID <b>{g['id']}</b> — {label}: "
+        f"{g.get('start_value') or '?'}{unit} → <b>{g['target_value']}{unit}</b> "
+        f"by {g['target_date']}"
+    )
+
+
+async def cmd_goal(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Goal CRUD.
+    /goal add <metric> <target> <YYYY-MM-DD>
+    /goal list
+    /goal del <id>
+    /goal primary <id>
+    /goal done <id>
+    """
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    _track_group_member(update)
+
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
+
+    args = context.args
+    if not args:
+        # Default: list
+        goals = list_goals(target_user_id)
+        if not goals:
+            await update.message.reply_text(
+                "📭 활성 목표가 없습니다.\n\n"
+                "사용법:\n"
+                "• /goal add 체중 75 2026-08-01\n"
+                "• /goal add 체지방률 15 2026-09-01\n"
+                "• /goal add 골격근량 38 2026-12-31\n"
+                "• /goal list — 목록 조회\n"
+                "• /goal primary [ID] — 주 목표 지정\n"
+                "• /goal done [ID] — 완료 처리\n"
+                "• /goal del [ID] — 삭제"
+            )
+            return
+        lines = ["🎯 <b>활성 목표</b>\n"]
+        for g in goals:
+            lines.append(_format_goal_line(g))
+        lines.append("\n⭐ = 주 목표 (칼로리 계산 기준)")
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    sub = args[0].lower()
+
+    if sub == "list":
+        goals = list_goals(target_user_id)
+        if not goals:
+            await update.message.reply_text("📭 활성 목표가 없습니다.")
+            return
+        lines = ["🎯 <b>활성 목표</b>\n"]
+        for g in goals:
+            lines.append(_format_goal_line(g))
+        await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+        return
+
+    if sub == "add":
+        if len(args) < 4:
+            await update.message.reply_text(
+                "사용법: /goal add <지표> <목표값> <YYYY-MM-DD>\n"
+                "예: /goal add 체중 75 2026-08-01\n"
+                "지표: 체중 / 체지방률 / 체지방량 / 골격근량"
+            )
+            return
+        metric = _resolve_metric(args[1])
+        if not metric:
+            await update.message.reply_text(
+                "지표를 인식하지 못했습니다. (체중 / 체지방률 / 체지방량 / 골격근량 중 하나)"
+            )
+            return
+        try:
+            target_value = float(args[2])
+        except ValueError:
+            await update.message.reply_text("목표값은 숫자여야 합니다.")
+            return
+        target_date = args[3]
+        try:
+            datetime.strptime(target_date, "%Y-%m-%d")
+        except ValueError:
+            await update.message.reply_text("날짜 형식이 올바르지 않습니다. YYYY-MM-DD 형식으로 입력해주세요.")
+            return
+
+        # Get start value from latest inbody
+        latest = get_latest_inbody(target_user_id)
+        start_value = None
+        if latest:
+            start_value = latest.get(metric)
+        if start_value is None and metric == "weight":
+            start_value = get_user_weight(target_user_id, chat_id)
+
+        goal_id = create_goal(
+            target_user_id, chat_id, metric, target_value, target_date,
+            start_value=start_value,
+        )
+        label, unit = GOAL_METRICS[metric]
+        await update.message.reply_text(
+            f"✅ 목표 등록 (ID {goal_id}): {label} → {target_value}{unit} by {target_date}",
+            parse_mode="HTML",
+        )
+        return
+
+    if sub in ("del", "delete", "rm"):
+        if len(args) < 2:
+            await update.message.reply_text("사용법: /goal del [ID]")
+            return
+        try:
+            gid = int(args[1])
+        except ValueError:
+            await update.message.reply_text("ID는 숫자여야 합니다.")
+            return
+        if delete_goal(gid, target_user_id):
+            await update.message.reply_text(f"🗑️ 목표 #{gid} 삭제됨")
+        else:
+            await update.message.reply_text("❌ 삭제 실패")
+        return
+
+    if sub == "primary":
+        if len(args) < 2:
+            await update.message.reply_text("사용법: /goal primary [ID]")
+            return
+        try:
+            gid = int(args[1])
+        except ValueError:
+            await update.message.reply_text("ID는 숫자여야 합니다.")
+            return
+        if set_primary_goal(gid, target_user_id):
+            await update.message.reply_text(f"⭐ 목표 #{gid}이 주 목표로 설정되었습니다.")
+        else:
+            await update.message.reply_text("❌ 설정 실패")
+        return
+
+    if sub == "done":
+        if len(args) < 2:
+            await update.message.reply_text("사용법: /goal done [ID]")
+            return
+        try:
+            gid = int(args[1])
+        except ValueError:
+            await update.message.reply_text("ID는 숫자여야 합니다.")
+            return
+        if update_goal_status(gid, target_user_id, "achieved"):
+            await update.message.reply_text(f"🎉 목표 #{gid} 달성 처리!")
+        else:
+            await update.message.reply_text("❌ 처리 실패")
+        return
+
+    await update.message.reply_text(
+        "알 수 없는 서브 명령어입니다.\n"
+        "사용 가능: add / list / del / primary / done"
+    )
+
+
+# ════════════════════════════════════════════════════════════
+# Plan / Today
+# ════════════════════════════════════════════════════════════
+
+def _build_plan_context(user_id: int, chat_id: int, date: str) -> str:
+    """Build markdown context for plan/summary generation."""
+    goals = list_goals(user_id)
+    primary = get_primary_goal(user_id)
+    latest_ib = get_latest_inbody(user_id)
+    weight = get_user_weight(user_id, chat_id)
+    height = get_user_height(user_id, chat_id)
+    today_workouts = get_records_for_date(user_id, date)
+    today_meals = get_meals_for_date(user_id, date)
+    recent_workouts = get_recent_records(chat_id, user_id, 7)
+
+    lines = [f"# 날짜: {date}", ""]
+
+    # User profile
+    lines.append("## 사용자 프로필")
+    if weight:
+        lines.append(f"- 체중: {weight}kg")
+    if height:
+        lines.append(f"- 키: {height}cm")
+    if latest_ib:
+        lines.append(f"- 최근 인바디 ({latest_ib['measured_at']}):")
+        for key, (label, unit) in [
+            ("weight_kg", ("체중", "kg")),
+            ("skeletal_muscle_kg", ("골격근량", "kg")),
+            ("body_fat_kg", ("체지방량", "kg")),
+            ("body_fat_pct", ("체지방률", "%")),
+            ("bmr_kcal", ("기초대사량", "kcal")),
+            ("bmi", ("BMI", "")),
+            ("visceral_fat_level", ("내장지방", "")),
+        ]:
+            v = latest_ib.get(key)
+            if v is not None:
+                lines.append(f"  • {label}: {v}{unit}")
+
+    # Goals
+    lines.append("\n## 활성 목표")
+    if goals:
+        for g in goals:
+            label, unit = GOAL_METRICS.get(g["metric"], (g["metric"], ""))
+            try:
+                days_left = (datetime.strptime(g["target_date"], "%Y-%m-%d").date()
+                             - datetime.strptime(date, "%Y-%m-%d").date()).days
+            except Exception:
+                days_left = "?"
+            prefix = "★ (주 목표) " if g["is_primary"] else ""
+            lines.append(
+                f"- {prefix}{label}: {g.get('start_value') or '?'}{unit} → {g['target_value']}{unit} "
+                f"by {g['target_date']} (남은일수: {days_left})"
+            )
+    else:
+        lines.append("- 등록된 목표 없음")
+
+    # Today's workouts
+    lines.append("\n## 오늘의 운동")
+    if today_workouts:
+        for r in today_workouts:
+            kcal = r.get("estimated_kcal")
+            kcal_str = f" — {int(kcal)}kcal" if kcal else ""
+            lines.append(f"- {r.get('category', '')}{kcal_str}: {(r.get('structured_md') or '')[:200]}")
+    else:
+        lines.append("- 아직 없음")
+
+    # Recent workouts
+    if recent_workouts:
+        lines.append("\n## 최근 7개 운동 기록")
+        for r in recent_workouts:
+            lines.append(f"- {r['date']}: {r.get('category', '')} — {(r.get('structured_md') or '')[:150]}")
+
+    # Today's meals
+    lines.append("\n## 오늘의 식단")
+    if today_meals:
+        total_kcal = 0.0
+        for m in today_meals:
+            k = m.get("estimated_kcal") or 0
+            total_kcal += k
+            lines.append(f"- {m['meal_type']} — {int(k)}kcal: {(m.get('structured_md') or '')[:200]}")
+        lines.append(f"- 합계: 약 {int(total_kcal)}kcal")
+    else:
+        lines.append("- 아직 없음")
+
+    return "\n".join(lines)
+
+
+async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    _track_group_member(update)
+
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
+
+    date = datetime.now().strftime("%Y-%m-%d")
+    cached = get_daily_plan(target_user_id, date)
+    refresh = bool(context.args and context.args[0].lower() in ("refresh", "new", "재생성"))
+
+    if cached and not refresh:
+        await _send_plan(update, cached)
+        return
+
+    if not list_goals(target_user_id):
+        await update.message.reply_text(
+            "🎯 활성 목표가 없어서 일일 계획을 생성할 수 없습니다.\n"
+            "/goal add <지표> <값> <기한> 으로 먼저 목표를 등록해주세요."
+        )
+        return
+
+    status_msg = await update.message.reply_text("📅 오늘의 계획 생성 중...")
+
+    try:
+        ctx_md = _build_plan_context(target_user_id, chat_id, date)
+        data = await generate_daily_plan(ctx_md)
+        if not data:
+            await status_msg.edit_text("❌ 계획 생성 실패")
+            return
+
+        upsert_daily_plan(
+            target_user_id, chat_id, date,
+            data.get("target_kcal_intake"),
+            data.get("target_kcal_burn"),
+            data.get("breakfast", ""),
+            data.get("lunch", ""),
+            data.get("dinner", ""),
+            json.dumps(data, ensure_ascii=False),
+        )
+
+        await status_msg.delete()
+        await _send_plan(update, {
+            "date": date,
+            "target_kcal_intake": data.get("target_kcal_intake"),
+            "target_kcal_burn": data.get("target_kcal_burn"),
+            "breakfast_suggestion": data.get("breakfast", ""),
+            "lunch_suggestion": data.get("lunch", ""),
+            "dinner_suggestion": data.get("dinner", ""),
+            "full_plan": json.dumps(data, ensure_ascii=False),
+        })
+    except Exception as e:
+        logger.error(f"Plan generation error: {e}")
+        await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+async def _send_plan(update: Update, plan: dict) -> None:
+    try:
+        full = json.loads(plan.get("full_plan") or "{}")
+    except Exception:
+        full = {}
+    intake = plan.get("target_kcal_intake")
+    burn = plan.get("target_kcal_burn")
+    parts = [f"📅 <b>오늘의 계획</b> ({plan.get('date', '')})\n"]
+    if intake:
+        parts.append(f"• 권장 섭취: <b>{int(intake)} kcal</b>")
+    if burn:
+        parts.append(f"• 권장 소모: <b>{int(burn)} kcal</b>")
+    parts.append("")
+    if plan.get("breakfast_suggestion"):
+        parts.append(f"🌅 <b>아침</b>\n{plan['breakfast_suggestion']}\n")
+    if plan.get("lunch_suggestion"):
+        parts.append(f"☀️ <b>점심</b>\n{plan['lunch_suggestion']}\n")
+    if plan.get("dinner_suggestion"):
+        parts.append(f"🌙 <b>저녁</b>\n{plan['dinner_suggestion']}\n")
+    if full.get("rationale_md"):
+        parts.append(f"💡 <b>가이드</b>\n{full['rationale_md']}")
+
+    await update.message.reply_text("\n".join(parts), parse_mode="HTML")
+
+
+async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Preview today's end-of-day summary (same as 9pm push)."""
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    _track_group_member(update)
+
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
+
+    date = datetime.now().strftime("%Y-%m-%d")
+    status_msg = await update.message.reply_text("📊 오늘 요약 생성 중...")
+
+    try:
+        ctx_md = _build_plan_context(target_user_id, chat_id, date)
+        data = await generate_daily_summary(ctx_md)
+        if not data:
+            await status_msg.edit_text("❌ 요약 생성 실패")
+            return
+
+        summary = data.get("summary_md", "")
+        assessment = data.get("goal_assessment_md", "")
+        upsert_daily_summary(target_user_id, chat_id, date, summary, assessment)
+
+        parts = [f"🌙 <b>오늘 요약</b> ({date})\n"]
+        if summary:
+            parts.append(summary)
+        if assessment:
+            parts.append(f"\n🎯 <b>목표 평가</b>\n{assessment}")
+
+        await status_msg.edit_text("\n".join(parts), parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Today summary error: {e}")
+        await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """JobQueue callback: send daily summary to each active user at 21:00 KST."""
+    from bot.database import get_active_users_recent
+    date = datetime.now().strftime("%Y-%m-%d")
+    users = get_active_users_recent(days=7)
+    logger.info(f"Daily summary job firing for {len(users)} users on {date}")
+
+    for u in users:
+        user_id = u["user_id"]
+        chat_id = u["chat_id"]
+        try:
+            ctx_md = _build_plan_context(user_id, chat_id, date)
+            data = await generate_daily_summary(ctx_md)
+            if not data:
+                continue
+            summary = data.get("summary_md", "")
+            assessment = data.get("goal_assessment_md", "")
+            upsert_daily_summary(user_id, chat_id, date, summary, assessment)
+
+            parts = [f"🌙 <b>오늘의 요약</b> ({date})\n"]
+            if summary:
+                parts.append(summary)
+            if assessment:
+                parts.append(f"\n🎯 <b>목표 평가</b>\n{assessment}")
+            text = "\n".join(parts)
+            if len(text) > 4000:
+                text = text[:4000]
+            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Daily summary failed for user {user_id} chat {chat_id}: {e}")

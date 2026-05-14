@@ -16,16 +16,32 @@ from itsdangerous import URLSafeSerializer
 from markupsafe import Markup
 
 from bot.database import (
+    GOAL_METRICS,
+    create_goal,
+    delete_goal,
+    delete_inbody,
+    delete_meal,
     delete_record,
     get_all_records_by_month_for_trainer,
     get_all_records_for_trainer,
+    get_daily_plan,
     get_group_members,
+    get_inbody_history,
+    get_latest_inbody,
+    get_meals_for_date,
+    get_primary_goal,
     get_records_by_month,
     get_records_for_user,
     get_records_without_category,
+    get_recent_meals,
+    get_user_weight,
     get_trainer_groups,
     get_user_groups,
     is_user_trainer,
+    list_goals,
+    set_primary_goal,
+    update_goal,
+    update_goal_status,
     update_record_category,
     update_record_date,
 )
@@ -268,6 +284,39 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
 
     conn.close()
 
+    # Goals / inbody / plan — for non-trainer users only (trainer dashboard already has its own)
+    today_str = date.today().strftime("%Y-%m-%d")
+    if not user["is_trainer"]:
+        active_goals = list_goals(user_id)
+        latest_inbody = get_latest_inbody(user_id)
+        latest_for_progress = latest_inbody or {}
+        fallback_weight = get_user_weight(user_id, user["groups"][0]) if user.get("groups") else None
+        for g in active_goals:
+            try:
+                g["days_left"] = (datetime.strptime(g["target_date"], "%Y-%m-%d").date() - date.today()).days
+            except Exception:
+                g["days_left"] = None
+            label, unit = GOAL_METRICS.get(g["metric"], (g["metric"], ""))
+            g["label"] = label
+            g["unit"] = unit
+            g["current_value"] = latest_for_progress.get(g["metric"])
+            if g["current_value"] is None and g["metric"] == "weight":
+                g["current_value"] = fallback_weight
+            if g["current_value"] is not None and g.get("start_value"):
+                try:
+                    total = g["target_value"] - g["start_value"]
+                    done = g["current_value"] - g["start_value"]
+                    g["progress_pct"] = 100 if total == 0 else max(0, min(100, int(done / total * 100)))
+                except Exception:
+                    g["progress_pct"] = None
+            else:
+                g["progress_pct"] = None
+        today_plan = get_daily_plan(user_id, today_str)
+    else:
+        active_goals = []
+        latest_inbody = None
+        today_plan = None
+
     cal_data = _build_calendar_data(cal_records, cal_year, cal_month)
     # Calendar grid: weeks as list of days (Mon=0)
     first_weekday, num_days = cal_module.monthrange(cal_year, cal_month)
@@ -311,6 +360,10 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         "next_month": next_month,
         "today_day": today.day if today.year == cal_year and today.month == cal_month else None,
         "get_category_color": get_category_color,
+        "active_goals": active_goals,
+        "latest_inbody": latest_inbody,
+        "today_plan": today_plan,
+        "today_str": today_str,
     })
 
 
@@ -598,6 +651,160 @@ async def api_edit_date(record_id: int, request: Request, user: dict = Depends(r
 async def api_delete_record(record_id: int, user: dict = Depends(require_user)):
     """Delete a record."""
     if delete_record(record_id, user["user_id"]):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "삭제 실패"}, status_code=403)
+
+
+# ── Goals ────────────────────────────────────────────────────
+
+@app.get("/goals", response_class=HTMLResponse)
+async def goals_page(request: Request, user: dict = Depends(require_user)):
+    goals = list_goals(user["user_id"])
+    achieved = []
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM goals WHERE user_id=? AND status='achieved' ORDER BY updated_at DESC LIMIT 20",
+        (user["user_id"],),
+    ).fetchall()
+    achieved = [dict(r) for r in rows]
+    conn.close()
+
+    today = date.today()
+    for g in goals + achieved:
+        try:
+            g["days_left"] = (datetime.strptime(g["target_date"], "%Y-%m-%d").date() - today).days
+        except Exception:
+            g["days_left"] = None
+        label, unit = GOAL_METRICS.get(g["metric"], (g["metric"], ""))
+        g["label"] = label
+        g["unit"] = unit
+
+    latest = get_latest_inbody(user["user_id"])
+
+    return templates.TemplateResponse("goals.html", {
+        "request": request,
+        "user": user,
+        "goals": goals,
+        "achieved": achieved,
+        "latest_inbody": latest,
+        "metrics": GOAL_METRICS,
+    })
+
+
+@app.post("/api/goals")
+async def api_create_goal(request: Request, user: dict = Depends(require_user)):
+    body = await request.json()
+    metric = body.get("metric", "")
+    if metric not in GOAL_METRICS:
+        return JSONResponse({"error": "잘못된 지표"}, status_code=400)
+    try:
+        target_value = float(body["target_value"])
+        target_date_str = body["target_date"]
+        datetime.strptime(target_date_str, "%Y-%m-%d")
+    except (KeyError, ValueError):
+        return JSONResponse({"error": "잘못된 입력"}, status_code=400)
+
+    start_value = body.get("start_value")
+    if start_value is None:
+        latest = get_latest_inbody(user["user_id"])
+        if latest:
+            start_value = latest.get(metric)
+    try:
+        start_value = float(start_value) if start_value is not None else None
+    except (TypeError, ValueError):
+        start_value = None
+
+    chat_id = user["groups"][0] if user.get("groups") else 0
+    gid = create_goal(
+        user["user_id"], chat_id, metric, target_value, target_date_str,
+        start_value=start_value, is_primary=bool(body.get("is_primary")),
+    )
+    return JSONResponse({"ok": True, "id": gid})
+
+
+@app.post("/api/goals/{goal_id}/delete")
+async def api_delete_goal(goal_id: int, user: dict = Depends(require_user)):
+    if delete_goal(goal_id, user["user_id"]):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "삭제 실패"}, status_code=403)
+
+
+@app.post("/api/goals/{goal_id}/primary")
+async def api_primary_goal(goal_id: int, user: dict = Depends(require_user)):
+    if set_primary_goal(goal_id, user["user_id"]):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "처리 실패"}, status_code=403)
+
+
+@app.post("/api/goals/{goal_id}/done")
+async def api_done_goal(goal_id: int, user: dict = Depends(require_user)):
+    if update_goal_status(goal_id, user["user_id"], "achieved"):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "처리 실패"}, status_code=403)
+
+
+@app.post("/api/goals/{goal_id}/update")
+async def api_update_goal(goal_id: int, request: Request, user: dict = Depends(require_user)):
+    body = await request.json()
+    target_value = body.get("target_value")
+    target_date_str = body.get("target_date")
+    if target_value is not None:
+        try:
+            target_value = float(target_value)
+        except ValueError:
+            return JSONResponse({"error": "잘못된 값"}, status_code=400)
+    if target_date_str:
+        try:
+            datetime.strptime(target_date_str, "%Y-%m-%d")
+        except ValueError:
+            return JSONResponse({"error": "잘못된 날짜"}, status_code=400)
+    if update_goal(goal_id, user["user_id"], target_value=target_value, target_date=target_date_str):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "수정 실패"}, status_code=403)
+
+
+# ── InBody ───────────────────────────────────────────────────
+
+@app.get("/inbody", response_class=HTMLResponse)
+async def inbody_page(request: Request, user: dict = Depends(require_user)):
+    history = get_inbody_history(user["user_id"], limit=100)
+    return templates.TemplateResponse("inbody.html", {
+        "request": request,
+        "user": user,
+        "history": history,
+    })
+
+
+@app.post("/api/inbody/{inbody_id}/delete")
+async def api_delete_inbody(inbody_id: int, user: dict = Depends(require_user)):
+    if delete_inbody(inbody_id, user["user_id"]):
+        return JSONResponse({"ok": True})
+    return JSONResponse({"error": "삭제 실패"}, status_code=403)
+
+
+# ── Meals ────────────────────────────────────────────────────
+
+@app.get("/meals", response_class=HTMLResponse)
+async def meals_page(request: Request, date_str: Optional[str] = Query(None, alias="date"), user: dict = Depends(require_user)):
+    today_str = date_str or date.today().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(today_str, "%Y-%m-%d")
+    except ValueError:
+        today_str = date.today().strftime("%Y-%m-%d")
+    today_meals = get_meals_for_date(user["user_id"], today_str)
+    recent = get_recent_meals(user["user_id"], 30)
+    return templates.TemplateResponse("meals.html", {
+        "request": request,
+        "user": user,
+        "today_str": today_str,
+        "today_meals": today_meals,
+        "recent": recent,
+    })
+
+
+@app.post("/api/meals/{meal_id}/delete")
+async def api_delete_meal(meal_id: int, user: dict = Depends(require_user)):
+    if delete_meal(meal_id, user["user_id"]):
         return JSONResponse({"ok": True})
     return JSONResponse({"error": "삭제 실패"}, status_code=403)
 

@@ -1,5 +1,7 @@
+import datetime as dt
 import logging
 import os
+from zoneinfo import ZoneInfo
 
 from telegram.ext import (
     ApplicationBuilder,
@@ -11,16 +13,25 @@ from telegram.ext import (
 from bot.database import init_db
 from bot.handlers import (
     cmd_analyze,
+    cmd_breakfast,
     cmd_delete,
+    cmd_dinner,
     cmd_editdate,
+    cmd_goal,
     cmd_help,
     cmd_history,
+    cmd_inbody,
+    cmd_lunch,
+    cmd_plan,
     cmd_setheight,
     cmd_settrainer,
     cmd_setweight,
+    cmd_snack,
     cmd_start,
     cmd_stats,
+    cmd_today,
     cmd_unsettrainer,
+    daily_summary_job,
     handle_photo,
     handle_text,
 )
@@ -55,11 +66,33 @@ def run_bot() -> None:
     app.add_handler(CommandHandler("settrainer", cmd_settrainer))
     app.add_handler(CommandHandler("unsettrainer", cmd_unsettrainer))
 
+    # New: inbody / meals / goals / plan / today
+    app.add_handler(CommandHandler("inbody", cmd_inbody))
+    app.add_handler(CommandHandler("breakfast", cmd_breakfast))
+    app.add_handler(CommandHandler("lunch", cmd_lunch))
+    app.add_handler(CommandHandler("dinner", cmd_dinner))
+    app.add_handler(CommandHandler("snack", cmd_snack))
+    app.add_handler(CommandHandler("goal", cmd_goal))
+    app.add_handler(CommandHandler("plan", cmd_plan))
+    app.add_handler(CommandHandler("today", cmd_today))
+
     # Photo handler — all photos
     app.add_handler(MessageHandler(filters.PHOTO & ~filters.COMMAND, handle_photo))
 
     # Text handler — non-command text
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
+    # Schedule daily summary at 21:00 KST
+    if app.job_queue is not None:
+        kst = ZoneInfo("Asia/Seoul")
+        app.job_queue.run_daily(
+            daily_summary_job,
+            time=dt.time(hour=21, minute=0, tzinfo=kst),
+            name="daily_summary_21kst",
+        )
+        logger.info("Daily summary job scheduled at 21:00 KST")
+    else:
+        logger.warning("JobQueue not available — daily summary disabled")
 
     logger.info("Bot starting...")
     app.run_polling(drop_pending_updates=True)

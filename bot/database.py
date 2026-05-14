@@ -44,6 +44,76 @@ def init_db() -> None:
             added_at TEXT NOT NULL,
             PRIMARY KEY (chat_id, user_id)
         );
+        CREATE TABLE IF NOT EXISTS inbody_records (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            measured_at TEXT NOT NULL,
+            weight_kg REAL,
+            skeletal_muscle_kg REAL,
+            body_fat_kg REAL,
+            body_fat_pct REAL,
+            bmi REAL,
+            bmr_kcal REAL,
+            body_water_kg REAL,
+            protein_kg REAL,
+            mineral_kg REAL,
+            visceral_fat_level REAL,
+            raw_json TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS goals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            metric TEXT NOT NULL,
+            start_value REAL,
+            target_value REAL NOT NULL,
+            target_date TEXT NOT NULL,
+            is_primary INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'active',
+            created_at TEXT NOT NULL,
+            updated_at TEXT
+        );
+        CREATE TABLE IF NOT EXISTS meals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            chat_id INTEGER NOT NULL,
+            user_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            meal_type TEXT NOT NULL,
+            raw_input TEXT,
+            structured_md TEXT,
+            estimated_kcal REAL,
+            protein_g REAL,
+            carbs_g REAL,
+            fat_g REAL,
+            analysis TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS daily_plans (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            target_kcal_intake REAL,
+            target_kcal_burn REAL,
+            breakfast_suggestion TEXT,
+            lunch_suggestion TEXT,
+            dinner_suggestion TEXT,
+            full_plan TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (user_id, date)
+        );
+        CREATE TABLE IF NOT EXISTS daily_summaries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            chat_id INTEGER NOT NULL,
+            date TEXT NOT NULL,
+            summary_md TEXT,
+            goal_assessment_md TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE (user_id, date)
+        );
     """)
     # Add category column if missing (existing DBs)
     try:
@@ -466,3 +536,402 @@ def update_record_category(record_id: int, category: str) -> None:
     conn.execute("UPDATE records SET category=? WHERE id=?", (category, record_id))
     conn.commit()
     conn.close()
+
+
+# ── InBody ───────────────────────────────────────────────────
+
+def save_inbody(
+    chat_id: int,
+    user_id: int,
+    measured_at: str,
+    metrics: dict,
+    raw_json: str = "",
+) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        """INSERT INTO inbody_records (
+            chat_id, user_id, measured_at,
+            weight_kg, skeletal_muscle_kg, body_fat_kg, body_fat_pct,
+            bmi, bmr_kcal, body_water_kg, protein_kg, mineral_kg, visceral_fat_level,
+            raw_json, created_at
+        ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            chat_id, user_id, measured_at,
+            metrics.get("weight_kg"),
+            metrics.get("skeletal_muscle_kg"),
+            metrics.get("body_fat_kg"),
+            metrics.get("body_fat_pct"),
+            metrics.get("bmi"),
+            metrics.get("bmr_kcal"),
+            metrics.get("body_water_kg"),
+            metrics.get("protein_kg"),
+            metrics.get("mineral_kg"),
+            metrics.get("visceral_fat_level"),
+            raw_json,
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    inbody_id = cur.lastrowid
+    # Also update user's current weight if available
+    w = metrics.get("weight_kg")
+    if w:
+        existing = conn.execute(
+            "SELECT 1 FROM users WHERE user_id=? AND chat_id=?", (user_id, chat_id)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE users SET weight_kg=? WHERE user_id=? AND chat_id=?",
+                (w, user_id, chat_id),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO users (user_id, chat_id, name, weight_kg, created_at) VALUES (?,?,?,?,?)",
+                (user_id, chat_id, "", w, datetime.utcnow().isoformat()),
+            )
+    conn.commit()
+    conn.close()
+    return inbody_id
+
+
+def get_latest_inbody(user_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM inbody_records WHERE user_id=? ORDER BY measured_at DESC, created_at DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_inbody_history(user_id: int, limit: int = 50) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM inbody_records WHERE user_id=? ORDER BY measured_at DESC, created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_inbody(inbody_id: int, user_id: int) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM inbody_records WHERE id=?", (inbody_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute("DELETE FROM inbody_records WHERE id=?", (inbody_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ── Goals ────────────────────────────────────────────────────
+
+GOAL_METRICS = {
+    "weight": ("체중", "kg"),
+    "body_fat_pct": ("체지방률", "%"),
+    "body_fat_kg": ("체지방량", "kg"),
+    "skeletal_muscle_kg": ("골격근량", "kg"),
+}
+
+
+def create_goal(
+    user_id: int,
+    chat_id: int,
+    metric: str,
+    target_value: float,
+    target_date: str,
+    start_value: Optional[float] = None,
+    is_primary: bool = False,
+) -> int:
+    conn = get_conn()
+    if is_primary:
+        conn.execute(
+            "UPDATE goals SET is_primary=0 WHERE user_id=? AND status='active'",
+            (user_id,),
+        )
+    cur = conn.execute(
+        """INSERT INTO goals (user_id, chat_id, metric, start_value, target_value, target_date, is_primary, status, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (
+            user_id, chat_id, metric, start_value, target_value, target_date,
+            int(is_primary), "active", datetime.utcnow().isoformat(),
+        ),
+    )
+    goal_id = cur.lastrowid
+    # Ensure exactly one primary among active goals
+    primary_count = conn.execute(
+        "SELECT COUNT(*) as c FROM goals WHERE user_id=? AND status='active' AND is_primary=1",
+        (user_id,),
+    ).fetchone()["c"]
+    if primary_count == 0:
+        conn.execute("UPDATE goals SET is_primary=1 WHERE id=?", (goal_id,))
+    conn.commit()
+    conn.close()
+    return goal_id
+
+
+def list_goals(user_id: int, status: str = "active") -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM goals WHERE user_id=? AND status=? ORDER BY is_primary DESC, target_date ASC",
+        (user_id, status),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_goal(goal_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM goals WHERE id=?", (goal_id,)).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_primary_goal(user_id: int) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM goals WHERE user_id=? AND status='active' AND is_primary=1 LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def set_primary_goal(goal_id: int, user_id: int) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM goals WHERE id=?", (goal_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute("UPDATE goals SET is_primary=0 WHERE user_id=?", (user_id,))
+    conn.execute("UPDATE goals SET is_primary=1, updated_at=? WHERE id=?",
+                 (datetime.utcnow().isoformat(), goal_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def update_goal_status(goal_id: int, user_id: int, status: str) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM goals WHERE id=?", (goal_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute(
+        "UPDATE goals SET status=?, updated_at=? WHERE id=?",
+        (status, datetime.utcnow().isoformat(), goal_id),
+    )
+    conn.commit()
+    conn.close()
+    return True
+
+
+def delete_goal(goal_id: int, user_id: int) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM goals WHERE id=?", (goal_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute("DELETE FROM goals WHERE id=?", (goal_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def update_goal(goal_id: int, user_id: int, target_value: Optional[float] = None,
+                target_date: Optional[str] = None) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM goals WHERE id=?", (goal_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    if target_value is not None:
+        conn.execute("UPDATE goals SET target_value=?, updated_at=? WHERE id=?",
+                     (target_value, datetime.utcnow().isoformat(), goal_id))
+    if target_date is not None:
+        conn.execute("UPDATE goals SET target_date=?, updated_at=? WHERE id=?",
+                     (target_date, datetime.utcnow().isoformat(), goal_id))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ── Meals ────────────────────────────────────────────────────
+
+def save_meal(
+    chat_id: int,
+    user_id: int,
+    date: str,
+    meal_type: str,
+    raw_input: str,
+    structured_md: str,
+    estimated_kcal: Optional[float],
+    macros: Optional[dict] = None,
+    analysis: str = "",
+) -> int:
+    macros = macros or {}
+    conn = get_conn()
+    cur = conn.execute(
+        """INSERT INTO meals (chat_id, user_id, date, meal_type, raw_input, structured_md,
+                              estimated_kcal, protein_g, carbs_g, fat_g, analysis, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            chat_id, user_id, date, meal_type, raw_input, structured_md,
+            estimated_kcal,
+            macros.get("protein_g"),
+            macros.get("carbs_g"),
+            macros.get("fat_g"),
+            analysis,
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    meal_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+    return meal_id
+
+
+def get_meals_for_date(user_id: int, date: str) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM meals WHERE user_id=? AND date=? ORDER BY created_at ASC",
+        (user_id, date),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_recent_meals(user_id: int, limit: int = 30) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM meals WHERE user_id=? ORDER BY date DESC, created_at DESC LIMIT ?",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def delete_meal(meal_id: int, user_id: int) -> bool:
+    conn = get_conn()
+    row = conn.execute("SELECT user_id FROM meals WHERE id=?", (meal_id,)).fetchone()
+    if not row or row["user_id"] != user_id:
+        conn.close()
+        return False
+    conn.execute("DELETE FROM meals WHERE id=?", (meal_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+# ── Daily plan / summary ─────────────────────────────────────
+
+def upsert_daily_plan(
+    user_id: int,
+    chat_id: int,
+    date: str,
+    target_kcal_intake: Optional[float],
+    target_kcal_burn: Optional[float],
+    breakfast: str,
+    lunch: str,
+    dinner: str,
+    full_plan: str,
+) -> None:
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO daily_plans (user_id, chat_id, date, target_kcal_intake, target_kcal_burn,
+                                    breakfast_suggestion, lunch_suggestion, dinner_suggestion,
+                                    full_plan, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?,?)
+           ON CONFLICT(user_id, date) DO UPDATE SET
+             target_kcal_intake=excluded.target_kcal_intake,
+             target_kcal_burn=excluded.target_kcal_burn,
+             breakfast_suggestion=excluded.breakfast_suggestion,
+             lunch_suggestion=excluded.lunch_suggestion,
+             dinner_suggestion=excluded.dinner_suggestion,
+             full_plan=excluded.full_plan""",
+        (
+            user_id, chat_id, date, target_kcal_intake, target_kcal_burn,
+            breakfast, lunch, dinner, full_plan,
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_daily_plan(user_id: int, date: str) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM daily_plans WHERE user_id=? AND date=?",
+        (user_id, date),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def upsert_daily_summary(
+    user_id: int,
+    chat_id: int,
+    date: str,
+    summary_md: str,
+    goal_assessment_md: str,
+) -> None:
+    conn = get_conn()
+    conn.execute(
+        """INSERT INTO daily_summaries (user_id, chat_id, date, summary_md, goal_assessment_md, created_at)
+           VALUES (?,?,?,?,?,?)
+           ON CONFLICT(user_id, date) DO UPDATE SET
+             summary_md=excluded.summary_md,
+             goal_assessment_md=excluded.goal_assessment_md""",
+        (
+            user_id, chat_id, date, summary_md, goal_assessment_md,
+            datetime.utcnow().isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_daily_summary(user_id: int, date: str) -> Optional[dict]:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT * FROM daily_summaries WHERE user_id=? AND date=?",
+        (user_id, date),
+    ).fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def get_records_for_date(user_id: int, date: str) -> list[dict]:
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT * FROM records WHERE user_id=? AND date=? ORDER BY created_at ASC",
+        (user_id, date),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_active_users_recent(days: int = 7) -> list[dict]:
+    """Users with any workout/meal/inbody activity in the last N days.
+    Returns [{user_id, chat_id}] — uses latest activity's chat_id per user."""
+    conn = get_conn()
+    cutoff_dt = datetime.utcnow()
+    from datetime import timedelta
+    cutoff = (cutoff_dt - timedelta(days=days)).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """SELECT user_id, chat_id, MAX(created_at) as latest FROM (
+              SELECT user_id, chat_id, created_at FROM records WHERE date >= ?
+              UNION ALL
+              SELECT user_id, chat_id, created_at FROM meals WHERE date >= ?
+              UNION ALL
+              SELECT user_id, chat_id, created_at FROM inbody_records WHERE measured_at >= ?
+              UNION ALL
+              SELECT user_id, chat_id, created_at FROM goals WHERE status='active'
+           ) GROUP BY user_id, chat_id
+           ORDER BY latest DESC""",
+        (cutoff, cutoff, cutoff),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]

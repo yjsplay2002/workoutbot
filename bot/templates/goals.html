@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}목표 관리{% endblock %}
+{% block content %}
+<h1>🎯 목표 관리</h1>
+
+<h2>새 목표 추가</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
+  <form id="goalForm" style="display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));align-items:end">
+    <div>
+      <label style="font-size:.8em;color:var(--text2);display:block;margin-bottom:4px">지표</label>
+      <select name="metric" required style="width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px">
+        {% for key, info in metrics.items() %}
+          <option value="{{ key }}">{{ info[0] }} ({{ info[1] }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label style="font-size:.8em;color:var(--text2);display:block;margin-bottom:4px">목표값</label>
+      <input name="target_value" type="number" step="0.1" required style="width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px">
+    </div>
+    <div>
+      <label style="font-size:.8em;color:var(--text2);display:block;margin-bottom:4px">기한</label>
+      <input name="target_date" type="date" required style="width:100%;background:var(--card2);border:1px solid var(--border);color:var(--text);padding:8px 12px;border-radius:8px">
+    </div>
+    <div>
+      <label style="font-size:.8em;color:var(--text2);display:block;margin-bottom:4px">
+        <input name="is_primary" type="checkbox" style="margin-right:4px"> 주 목표로 지정
+      </label>
+      <button type="submit" style="background:var(--accent);color:#fff;border:none;padding:10px 20px;border-radius:8px;cursor:pointer;width:100%">추가</button>
+    </div>
+  </form>
+  {% if latest_inbody %}
+  <div style="margin-top:12px;font-size:.85em;color:var(--text2)">
+    💡 시작값은 최근 인바디({{ latest_inbody.measured_at }})에서 자동으로 가져옵니다.
+  </div>
+  {% endif %}
+</div>
+
+<h2>활성 목표 ({{ goals|length }})</h2>
+{% if goals %}
+{% for g in goals %}
+<div class="record-card" style="{% if g.is_primary %}border-color:var(--accent){% endif %}">
+  <div class="meta">
+    <span>
+      {% if g.is_primary %}⭐ {% endif %}<b>{{ g.label }}</b>
+      <span style="color:var(--text2)">ID {{ g.id }}</span>
+    </span>
+    <span style="color:var(--text2)">📅 {{ g.target_date }}
+      {% if g.days_left is not none %}
+        {% if g.days_left < 0 %}<span style="color:var(--red)">(지남)</span>
+        {% else %}<span>(D-{{ g.days_left }})</span>{% endif %}
+      {% endif %}
+    </span>
+  </div>
+  <div style="font-size:1.1em">
+    시작값 {{ g.start_value or '?' }}{{ g.unit }} →
+    <b style="color:var(--accent2)">목표 {{ g.target_value }}{{ g.unit }}</b>
+  </div>
+  <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
+    {% if not g.is_primary %}
+    <button onclick="setPrimary({{ g.id }})" style="background:var(--card2);color:var(--text);border:1px solid var(--border);padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.85em">⭐ 주 목표로</button>
+    {% endif %}
+    <button onclick="markDone({{ g.id }})" style="background:var(--green);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.85em">✓ 달성</button>
+    <button onclick="delGoal({{ g.id }})" style="background:var(--red);color:#fff;border:none;padding:6px 12px;border-radius:6px;cursor:pointer;font-size:.85em">삭제</button>
+  </div>
+</div>
+{% endfor %}
+{% else %}
+<div class="empty">활성 목표가 없습니다.</div>
+{% endif %}
+
+{% if achieved %}
+<h2>달성/종료 목표</h2>
+{% for g in achieved %}
+<div class="record-card" style="opacity:.6">
+  <div class="meta">
+    <span>🎉 <b>{{ g.label }}</b> <span style="color:var(--text2)">ID {{ g.id }}</span></span>
+    <span style="color:var(--text2)">📅 {{ g.target_date }}</span>
+  </div>
+  <div>{{ g.start_value or '?' }}{{ g.unit }} → {{ g.target_value }}{{ g.unit }}</div>
+</div>
+{% endfor %}
+{% endif %}
+
+<script>
+async function post(url, body) {
+  const r = await fetch(url, {method:'POST', headers:{'Content-Type':'application/json'}, body: body ? JSON.stringify(body) : null});
+  const data = await r.json();
+  if (data.ok) location.reload();
+  else alert(data.error || '실패');
+}
+document.getElementById('goalForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const body = {
+    metric: fd.get('metric'),
+    target_value: parseFloat(fd.get('target_value')),
+    target_date: fd.get('target_date'),
+    is_primary: fd.get('is_primary') === 'on',
+  };
+  post('/api/goals', body);
+});
+function setPrimary(id){ post(`/api/goals/${id}/primary`); }
+function markDone(id){ if (confirm('달성 처리하시겠습니까?')) post(`/api/goals/${id}/done`); }
+function delGoal(id){ if (confirm('삭제하시겠습니까?')) post(`/api/goals/${id}/delete`); }
+</script>
+{% endblock %}
