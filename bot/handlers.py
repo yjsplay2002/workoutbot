@@ -8,6 +8,8 @@ from telegram.ext import ContextTypes
 
 from bot.analyzer import (
     analyze_workout,
+    classify_intent_from_image,
+    classify_intent_from_text,
     classify_workout,
     extract_from_image,
     extract_from_text,
@@ -18,6 +20,7 @@ from bot.analyzer import (
     generate_daily_plan,
     generate_daily_summary,
     group_by_date,
+    is_fitness_relevant_text,
     is_workout_text,
 )
 from bot.database import (
@@ -518,10 +521,23 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         }
 
 
+def _meal_type_by_time() -> str:
+    """Default meal type based on current Asia/Seoul hour."""
+    from zoneinfo import ZoneInfo
+    h = datetime.now(ZoneInfo("Asia/Seoul")).hour
+    if 4 <= h < 11:
+        return "breakfast"
+    if 11 <= h < 15:
+        return "lunch"
+    if 17 <= h < 22:
+        return "dinner"
+    return "snack"
+
+
 async def _process_album_after_delay(
     key: tuple, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
-    """Wait for album to complete, then process all images together."""
+    """Wait for album to complete, then classify intent and dispatch."""
     await asyncio.sleep(ALBUM_WAIT_SECONDS)
 
     buf = _album_buffers.pop(key, None)
@@ -530,7 +546,6 @@ async def _process_album_after_delay(
 
     chat_id, sender_id = key
     user = update.effective_user
-    # Use resolved target user (client), not necessarily the sender (trainer)
     target_user_id = buf.get("target_user_id", sender_id)
     images = buf["images"]
     status_msg = buf["status_msg"]
@@ -540,92 +555,224 @@ async def _process_album_after_delay(
         return
 
     upsert_user(user.id, chat_id, user.full_name)
-    # Ensure target user (client) is also registered
     if target_user_id != user.id:
         upsert_user(target_user_id, chat_id, f"client_{target_user_id}")
 
     count = len(images)
-    await status_msg.edit_text(f"📸 이미지 {count}장 분석 중...")
+    await status_msg.edit_text(f"🤔 사진 {count}장 분류 중...")
+
+    # Classify intent on the first image. Other images assumed same kind.
+    try:
+        intent_data = await classify_intent_from_image(images[0])
+    except Exception as e:
+        logger.error(f"Intent classification error: {e}")
+        # Fall back to workout flow rather than refusing — old behavior
+        intent_data = {"intent": "workout", "confidence": 0.3}
+
+    intent = (intent_data.get("intent") or "workout").lower()
+    reason = intent_data.get("reason_md", "")
+    logger.info(f"Image intent={intent} confidence={intent_data.get('confidence')} reason={reason}")
 
     try:
-        # Extract from all images IN PARALLEL
-        await status_msg.edit_text(f"📸 이미지 {count}장에서 운동 기록 추출 중... (1/{count})")
-
-        async def extract_one(idx, img):
-            result = await extract_from_image(img)
-            try:
-                await status_msg.edit_text(
-                    f"📸 이미지 추출 중... ({idx + 1}/{count})"
-                )
-            except Exception:
-                pass
-            return result
-
-        tasks = [extract_one(i, img) for i, img in enumerate(images)]
-        extracted_results = await asyncio.gather(*tasks, return_exceptions=True)
-
-        all_extracted = []
-        for r in extracted_results:
-            if isinstance(r, Exception):
-                logger.error(f"Image extraction error: {r}")
-                continue
-            if "NO_WORKOUT_DATA" not in r:
-                all_extracted.append(r)
-
-        if not all_extracted:
-            await status_msg.edit_text("이미지에서 운동 기록을 찾을 수 없습니다.")
-            return
-
-        # Group by date extracted from images
-        date_groups = group_by_date(all_extracted)
-        weight = get_user_weight(target_user_id, chat_id)
-        height = get_user_height(target_user_id, chat_id)
-        history = get_recent_records(chat_id, target_user_id, 5)
-
-        date_count = len(date_groups)
-        await status_msg.edit_text(f"📊 {date_count}개 날짜 분석 중...")
-
-        # Analyze each date group IN PARALLEL
-        async def analyze_one(date, data_list):
-            combined = "\n\n".join(data_list)
-            existing = get_today_record(chat_id, target_user_id, date)
-            if existing:
-                merged = existing["structured_md"] + "\n\n" + combined
-                analysis = await analyze_workout(merged, weight, format_history_summary(history), height_cm=height)
-                kcal = extract_kcal(analysis)
-                category = classify_workout(merged)
-                merge_record(existing["id"], merged, analysis, kcal, category=category)
-            else:
-                analysis = await analyze_workout(combined, weight, format_history_summary(history), height_cm=height)
-                kcal = extract_kcal(analysis)
-                category = classify_workout(combined)
-                save_record(chat_id, target_user_id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
-            return date, analysis
-
-        analysis_tasks = [analyze_one(d, dl) for d, dl in sorted(date_groups.items())]
-        analysis_results = await asyncio.gather(*analysis_tasks, return_exceptions=True)
-
-        results = []
-        for r in analysis_results:
-            if isinstance(r, Exception):
-                logger.error(f"Analysis error: {r}")
-                continue
-            date, analysis = r
-            results.append(f"📅 <b>{date}</b>\n{analysis}")
-
-        # Send results — one message per date to avoid length issues
-        saved_for = f" (클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
-        await status_msg.edit_text(f"✅ {len(results)}개 날짜 분석 완료!{saved_for}")
-        for r in results:
-            # Split if too long
-            if len(r) > 4000:
-                await update.message.reply_text(r[:4000], parse_mode="HTML")
-            else:
-                await update.message.reply_text(r, parse_mode="HTML")
-
+        if intent == "inbody":
+            await _process_inbody_image(update, chat_id, user, target_user_id, images[0], status_msg)
+        elif intent == "meal":
+            meal_type = (intent_data.get("meal_type") or "").lower() or _meal_type_by_time()
+            if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+                meal_type = _meal_type_by_time()
+            caption = (update.message.caption or "").strip()
+            await _process_meal_image(update, chat_id, user, target_user_id, images, meal_type, caption, status_msg)
+        elif intent == "unrelated":
+            msg = "🤔 운동·식단·인바디 어느 것에도 해당되지 않는 사진으로 보입니다."
+            if reason:
+                msg += f"\n<i>{reason}</i>"
+            await status_msg.edit_text(msg, parse_mode="HTML")
+        else:
+            await _process_workout_album(update, chat_id, user, target_user_id, images, status_msg)
     except Exception as e:
-        logger.error(f"Album analysis error: {e}")
+        logger.error(f"Dispatch error (intent={intent}): {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
+
+
+async def _process_workout_album(
+    update: Update, chat_id: int, user, target_user_id: int,
+    images: list[bytes], status_msg,
+) -> None:
+    """Extract workout records from one or more images, analyze, save."""
+    from bot.analyzer import extract_from_image as _extract_from_image
+    count = len(images)
+    await status_msg.edit_text(f"📸 운동 기록 추출 중... (1/{count})")
+
+    async def extract_one(idx, img):
+        result = await _extract_from_image(img)
+        try:
+            await status_msg.edit_text(f"📸 이미지 추출 중... ({idx + 1}/{count})")
+        except Exception:
+            pass
+        return result
+
+    extracted_results = await asyncio.gather(
+        *[extract_one(i, img) for i, img in enumerate(images)],
+        return_exceptions=True,
+    )
+
+    all_extracted = []
+    for r in extracted_results:
+        if isinstance(r, Exception):
+            logger.error(f"Image extraction error: {r}")
+            continue
+        if "NO_WORKOUT_DATA" not in r:
+            all_extracted.append(r)
+
+    if not all_extracted:
+        await status_msg.edit_text(
+            "운동 사진으로 인식했지만 기록을 추출하지 못했습니다.\n"
+            "글자가 잘 안 보이거나 손글씨라면 텍스트로 입력해주세요."
+        )
+        return
+
+    date_groups = group_by_date(all_extracted)
+    weight = get_user_weight(target_user_id, chat_id)
+    height = get_user_height(target_user_id, chat_id)
+    history = get_recent_records(chat_id, target_user_id, 5)
+
+    date_count = len(date_groups)
+    await status_msg.edit_text(f"📊 {date_count}개 날짜 분석 중...")
+
+    async def analyze_one(date, data_list):
+        combined = "\n\n".join(data_list)
+        existing = get_today_record(chat_id, target_user_id, date)
+        if existing:
+            merged = existing["structured_md"] + "\n\n" + combined
+            analysis = await analyze_workout(merged, weight, format_history_summary(history), height_cm=height)
+            kcal = extract_kcal(analysis)
+            category = classify_workout(merged)
+            merge_record(existing["id"], merged, analysis, kcal, category=category)
+        else:
+            analysis = await analyze_workout(combined, weight, format_history_summary(history), height_cm=height)
+            kcal = extract_kcal(analysis)
+            category = classify_workout(combined)
+            save_record(chat_id, target_user_id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
+        return date, analysis
+
+    analysis_results = await asyncio.gather(
+        *[analyze_one(d, dl) for d, dl in sorted(date_groups.items())],
+        return_exceptions=True,
+    )
+
+    results = []
+    for r in analysis_results:
+        if isinstance(r, Exception):
+            logger.error(f"Analysis error: {r}")
+            continue
+        date, analysis = r
+        results.append(f"📅 <b>{date}</b>\n{analysis}")
+
+    saved_for = f" (클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
+    await status_msg.edit_text(f"✅ {len(results)}개 날짜 분석 완료!{saved_for}")
+    for r in results:
+        await update.message.reply_text(r[:4000] if len(r) > 4000 else r, parse_mode="HTML")
+
+
+async def _process_inbody_image(
+    update: Update, chat_id: int, user, target_user_id: int,
+    image_bytes: bytes, status_msg,
+) -> None:
+    """Extract InBody metrics, save, and reply."""
+    await status_msg.edit_text("📊 인바디 수치 추출 중...")
+    metrics = await extract_inbody(image_bytes)
+    if not metrics:
+        await status_msg.edit_text("❌ 인바디 이미지로 인식했지만 수치 추출에 실패했습니다.")
+        return
+
+    measured_at = metrics.get("measured_at") or datetime.now().strftime("%Y-%m-%d")
+    try:
+        datetime.strptime(measured_at, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        measured_at = datetime.now().strftime("%Y-%m-%d")
+
+    clean = {k: metrics.get(k) for k in [
+        "weight_kg", "skeletal_muscle_kg", "body_fat_kg", "body_fat_pct",
+        "bmi", "bmr_kcal", "body_water_kg", "protein_kg", "mineral_kg", "visceral_fat_level",
+    ] if metrics.get(k) is not None}
+
+    save_inbody(chat_id, target_user_id, measured_at, clean, json.dumps(metrics, ensure_ascii=False))
+
+    lines = [f"✅ <b>인바디 저장 완료</b> ({measured_at})"]
+    label_map = {
+        "weight_kg": ("체중", "kg"),
+        "skeletal_muscle_kg": ("골격근량", "kg"),
+        "body_fat_kg": ("체지방량", "kg"),
+        "body_fat_pct": ("체지방률", "%"),
+        "bmi": ("BMI", ""),
+        "bmr_kcal": ("기초대사량", "kcal"),
+        "body_water_kg": ("체수분", "kg"),
+        "protein_kg": ("단백질", "kg"),
+        "mineral_kg": ("무기질", "kg"),
+        "visceral_fat_level": ("내장지방 레벨", ""),
+    }
+    for key, (label, unit) in label_map.items():
+        v = clean.get(key)
+        if v is not None:
+            lines.append(f"• {label}: <b>{v}</b>{unit}")
+    if target_user_id != user.id:
+        lines.append(f"\n(클라이언트 ID: {target_user_id} 기록으로 저장)")
+    await status_msg.edit_text("\n".join(lines), parse_mode="HTML")
+
+
+async def _process_meal_image(
+    update: Update, chat_id: int, user, target_user_id: int,
+    images: list[bytes], meal_type: str, caption: str, status_msg,
+) -> None:
+    """Analyze a meal photo (uses first image; rest ignored with a notice)."""
+    await status_msg.edit_text("🍽️ 식단 분석 중...")
+    weight = get_user_weight(target_user_id, chat_id)
+    height = get_user_height(target_user_id, chat_id)
+    ctx_lines = []
+    if weight:
+        ctx_lines.append(f"사용자 체중: {weight}kg")
+    if height:
+        ctx_lines.append(f"키: {height}cm")
+    if caption:
+        ctx_lines.append(f"사용자 메모: {caption}")
+    user_ctx = "\n".join(ctx_lines)
+
+    data = await extract_meal_from_image(images[0], meal_type, user_ctx)
+    if not data or not data.get("items"):
+        await status_msg.edit_text("❌ 식사 사진으로 인식했지만 음식을 식별하지 못했습니다.")
+        return
+
+    items_md = "\n".join(
+        f"• {it.get('name', '')} ({it.get('amount', '')}) — {it.get('kcal', '?')}kcal"
+        for it in data.get("items", [])
+    )
+    structured_md = data.get("summary_md", "") or items_md
+    analysis_md = data.get("analysis_md", "")
+    kcal = data.get("total_kcal")
+    macros = {
+        "protein_g": data.get("protein_g"),
+        "carbs_g": data.get("carbs_g"),
+        "fat_g": data.get("fat_g"),
+    }
+
+    date = datetime.now().strftime("%Y-%m-%d")
+    raw = f"[image] {caption}".strip()
+    save_meal(chat_id, target_user_id, date, meal_type, raw, structured_md, kcal, macros, analysis_md)
+
+    meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
+    kcal_str = f"{int(kcal)} kcal" if kcal else "?"
+    body = [
+        f"{meal_label} ({date}) — <b>{kcal_str}</b>",
+        "",
+        items_md,
+    ]
+    if analysis_md:
+        body += ["", analysis_md]
+    if len(images) > 1:
+        body.append(f"\n<i>(첫 번째 사진만 분석. 나머지 {len(images)-1}장은 무시.)</i>")
+    if target_user_id != user.id:
+        body.append(f"\n(클라이언트 ID: {target_user_id} 기록으로 저장)")
+    await status_msg.edit_text("\n".join(body), parse_mode="HTML")
 
 
 async def _process_single_photo(
@@ -673,23 +820,124 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     text = update.message.text
     if text.startswith("/"):
         return
-    if not is_workout_text(text):
+    # Gate the LLM classifier behind a cheap keyword filter so random group-chat
+    # chitchat doesn't trigger an API call. Anything matching workout/meal/inbody
+    # vocabulary or numeric patterns (sets, weights, kcal) goes to the classifier.
+    if not is_fitness_relevant_text(text):
         return
-    await _process_text_workout(update, context, text)
 
-
-async def _process_text_workout(
-    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str
-) -> None:
     chat_id = update.effective_chat.id
     user = update.effective_user
+    target_user_id, err = await _resolve_target_user(update, chat_id, user.id)
+    if err:
+        await update.message.reply_text(err)
+        return
 
     if not check_rate_limit(chat_id):
         return
 
     upsert_user(user.id, chat_id, user.full_name)
+    if target_user_id != user.id:
+        upsert_user(target_user_id, chat_id, f"client_{target_user_id}")
 
-    status_msg = await update.message.reply_text("📝 운동 기록 분석 중...")
+    status_msg = await update.message.reply_text("🤔 분류 중...")
+
+    try:
+        intent_data = await classify_intent_from_text(text)
+    except Exception as e:
+        logger.error(f"Text intent classification error: {e}")
+        intent_data = {"intent": "workout", "confidence": 0.3}
+
+    intent = (intent_data.get("intent") or "workout").lower()
+    reason = intent_data.get("reason_md", "")
+    logger.info(f"Text intent={intent} confidence={intent_data.get('confidence')} reason={reason}")
+
+    try:
+        if intent == "meal":
+            meal_type = (intent_data.get("meal_type") or "").lower() or _meal_type_by_time()
+            if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+                meal_type = _meal_type_by_time()
+            await _process_meal_text(update, chat_id, user, target_user_id, text, meal_type, status_msg)
+        elif intent == "inbody":
+            await status_msg.edit_text(
+                "📊 인바디 수치는 사진으로 보내주세요. (텍스트 입력 미지원)"
+            )
+        elif intent == "unrelated":
+            msg = "🤔 운동·식단·인바디 어느 것에도 해당되지 않아 보입니다."
+            if reason:
+                msg += f"\n<i>{reason}</i>"
+            await status_msg.edit_text(msg, parse_mode="HTML")
+        else:
+            await _process_text_workout(update, context, text, status_msg=status_msg, target_user_id=target_user_id)
+    except Exception as e:
+        logger.error(f"Text dispatch error (intent={intent}): {e}")
+        await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+async def _process_meal_text(
+    update: Update, chat_id: int, user, target_user_id: int,
+    text: str, meal_type: str, status_msg,
+) -> None:
+    await status_msg.edit_text("🍽️ 식단 분석 중...")
+    weight = get_user_weight(target_user_id, chat_id)
+    height = get_user_height(target_user_id, chat_id)
+    ctx_lines = []
+    if weight:
+        ctx_lines.append(f"사용자 체중: {weight}kg")
+    if height:
+        ctx_lines.append(f"키: {height}cm")
+    user_ctx = "\n".join(ctx_lines)
+
+    data = await extract_meal_from_text(text, meal_type, user_ctx)
+    if not data or not data.get("items"):
+        await status_msg.edit_text("❌ 식사로 인식했지만 음식 구체화에 실패했습니다.")
+        return
+
+    items_md = "\n".join(
+        f"• {it.get('name', '')} ({it.get('amount', '')}) — {it.get('kcal', '?')}kcal"
+        for it in data.get("items", [])
+    )
+    structured_md = data.get("summary_md", "") or items_md
+    analysis_md = data.get("analysis_md", "")
+    kcal = data.get("total_kcal")
+    macros = {
+        "protein_g": data.get("protein_g"),
+        "carbs_g": data.get("carbs_g"),
+        "fat_g": data.get("fat_g"),
+    }
+
+    date = datetime.now().strftime("%Y-%m-%d")
+    save_meal(chat_id, target_user_id, date, meal_type, text, structured_md, kcal, macros, analysis_md)
+
+    meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
+    kcal_str = f"{int(kcal)} kcal" if kcal else "?"
+    body = [
+        f"{meal_label} ({date}) — <b>{kcal_str}</b>",
+        "",
+        items_md,
+    ]
+    if analysis_md:
+        body += ["", analysis_md]
+    if target_user_id != user.id:
+        body.append(f"\n(클라이언트 ID: {target_user_id} 기록으로 저장)")
+    await status_msg.edit_text("\n".join(body), parse_mode="HTML")
+
+
+async def _process_text_workout(
+    update: Update, context: ContextTypes.DEFAULT_TYPE, text: str,
+    *, status_msg=None, target_user_id: int | None = None,
+) -> None:
+    chat_id = update.effective_chat.id
+    user = update.effective_user
+    tuid = target_user_id if target_user_id is not None else user.id
+
+    if status_msg is None:
+        if not check_rate_limit(chat_id):
+            return
+        upsert_user(user.id, chat_id, user.full_name)
+        status_msg = await update.message.reply_text("📝 운동 기록 분석 중...")
+    else:
+        await status_msg.edit_text("📝 운동 기록 분석 중...")
 
     try:
         structured = await extract_from_text(text)
@@ -697,18 +945,17 @@ async def _process_text_workout(
             await status_msg.edit_text("운동 기록을 인식할 수 없습니다.")
             return
 
-        weight = get_user_weight(user.id, chat_id)
-        height = get_user_height(user.id, chat_id)
-        history = get_recent_records(chat_id, user.id, 5)
+        weight = get_user_weight(tuid, chat_id)
+        height = get_user_height(tuid, chat_id)
+        history = get_recent_records(chat_id, tuid, 5)
 
-        # Same-day merge
         today = datetime.now().strftime("%Y-%m-%d")
-        existing = get_today_record(chat_id, user.id, today)
+        existing = get_today_record(chat_id, tuid, today)
 
         if existing:
             merged_structured = existing["structured_md"] + "\n\n" + structured
             analysis = await analyze_workout(
-                merged_structured, weight, format_history_summary(history)
+                merged_structured, weight, format_history_summary(history), height_cm=height,
             )
             kcal = extract_kcal(analysis)
             category = classify_workout(merged_structured)
@@ -719,11 +966,11 @@ async def _process_text_workout(
             )
         else:
             analysis = await analyze_workout(
-                structured, weight, format_history_summary(history)
+                structured, weight, format_history_summary(history), height_cm=height,
             )
             kcal = extract_kcal(analysis)
             category = classify_workout(structured)
-            save_record(chat_id, user.id, text, structured, analysis, kcal, category=category)
+            save_record(chat_id, tuid, text, structured, analysis, kcal, category=category)
             await status_msg.edit_text(analysis, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Text analysis error: {e}")

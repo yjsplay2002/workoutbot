@@ -10,6 +10,8 @@ client: Optional[AsyncOpenAI] = None
 
 MAIN_MODEL = os.environ.get("MAIN_MODEL", "gpt-5.5")
 VISION_MODEL = os.environ.get("VISION_MODEL", MAIN_MODEL)
+# Cheap fast model for intent routing. Override via env if you want a smaller/faster one.
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", MAIN_MODEL)
 
 
 def get_client() -> AsyncOpenAI:
@@ -470,3 +472,112 @@ async def generate_daily_summary(context_md: str) -> dict:
         response_format={"type": "json_object"},
     )
     return _safe_json(resp.choices[0].message.content or "")
+
+
+# ── Intent classification ────────────────────────────────────
+
+INTENT_CLASSIFIER_SYSTEM = (
+    "You are a fitness assistant intent classifier. The user is in a fitness coaching context. "
+    "Given a photo or text from the user, decide what kind of fitness log it is. "
+    "Return STRICT JSON only.\n\n"
+    "Schema:\n"
+    "{\n"
+    '  "intent": "workout" | "meal" | "inbody" | "unrelated",\n'
+    '  "meal_type": "breakfast" | "lunch" | "dinner" | "snack" | null,\n'
+    '  "confidence": 0.0..1.0,\n'
+    '  "reason_md": "Korean, one short sentence. Why this category."\n'
+    "}\n\n"
+    "Categories:\n"
+    "- workout: 운동 기록. Exercise log/journal — sets, reps, weights, exercise names. "
+    "Includes handwritten gym notebooks (even if hard to read), gym whiteboards, "
+    "screenshots from fitness apps (Strong, Hevy, MyFitnessPal workout tab), workout text descriptions.\n"
+    "- meal: 식단. Food photo (plate, restaurant dish, lunchbox, snack), nutrition labels, "
+    "food/recipe text descriptions. meal_type optional — set it if obvious from time-of-day "
+    "context in the message; otherwise null.\n"
+    "- inbody: 인바디. Body composition analysis sheet — InBody/Olympus/Tanita output showing "
+    "weight, skeletal muscle, body fat %, BMR, BMI, etc. Usually a printout with bar charts.\n"
+    "- unrelated: anything else — pets, scenery, screenshots of unrelated chat, code, memes, "
+    "documents, selfies without context, etc.\n\n"
+    "Be decisive even if the image quality is poor. If it looks like a workout log in any form "
+    "(handwriting, smudges, partial visibility), classify as workout — the downstream extractor "
+    "will handle illegibility separately. Same for food and inbody."
+)
+
+
+async def classify_intent_from_image(image_bytes: bytes, hint: str = "") -> dict:
+    b64 = base64.b64encode(image_bytes).decode()
+    c = get_client()
+    user_text = "이 사진을 분류해주세요." + (f"\n참고: {hint}" if hint else "")
+    resp = await c.chat.completions.create(
+        model=CLASSIFIER_MODEL,
+        messages=[
+            {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
+            {
+                "role": "user",
+                "content": [
+                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+                    {"type": "text", "text": user_text},
+                ],
+            },
+        ],
+        max_completion_tokens=400,
+        response_format={"type": "json_object"},
+    )
+    return _safe_json(resp.choices[0].message.content or "")
+
+
+async def classify_intent_from_text(text: str, hint: str = "") -> dict:
+    c = get_client()
+    user_text = f"다음 텍스트를 분류해주세요:\n\n{text}" + (f"\n\n참고: {hint}" if hint else "")
+    resp = await c.chat.completions.create(
+        model=CLASSIFIER_MODEL,
+        messages=[
+            {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
+            {"role": "user", "content": user_text},
+        ],
+        max_completion_tokens=400,
+        response_format={"type": "json_object"},
+    )
+    return _safe_json(resp.choices[0].message.content or "")
+
+
+FITNESS_RELEVANT_KEYWORDS = [
+    # workout
+    "운동", "세트", "set", "rep", "kg", "횟수", "벤치", "스쿼트", "데드", "덤벨", "바벨",
+    "풀업", "푸쉬업", "푸시업", "플랭크", "랫풀", "레그", "숄더", "컬", "런지", "로우",
+    "프레스", "인클라인", "오버헤드", "케이블", "머신",
+    "bench", "squat", "deadlift", "press", "curl", "pull", "rm", "reps",
+    # meal/food
+    "아침", "점심", "저녁", "간식", "밥", "닭", "샐러드", "단백질", "탄수", "지방",
+    "고구마", "계란", "두부", "스테이크", "샌드위치", "샐러드", "스무디", "쉐이크",
+    "kcal", "칼로리", "그램", "g당", "먹었", "먹음", "식단", "도시락",
+    "breakfast", "lunch", "dinner", "snack", "meal", "protein", "carbs",
+    # inbody
+    "인바디", "골격근", "체지방", "체중", "근육량", "기초대사", "bmr", "bmi",
+    "체수분", "내장지방",
+]
+
+
+def is_fitness_relevant_text(text: str) -> bool:
+    """Cheap keyword pre-filter to gate LLM intent classification on text.
+
+    True if any workout/meal/inbody-adjacent keyword appears, OR the text contains
+    a numeric pattern that looks like sets/reps/weights/calories. False for chitchat.
+    Keeps the LLM classifier from running on every random group-chat message.
+    """
+    if not text:
+        return False
+    t = text.strip()
+    if len(t) < 3:
+        return False
+    tl = t.lower()
+    if any(kw.lower() in tl for kw in FITNESS_RELEVANT_KEYWORDS):
+        return True
+    # Numeric patterns that strongly suggest fitness logs
+    if re.search(r'\d+\s*[xX×]\s*\d+', t):
+        return True
+    if re.search(r'\d+\s*kg', tl):
+        return True
+    if re.search(r'\d+\s*(kcal|cal|칼로리)', tl):
+        return True
+    return False
