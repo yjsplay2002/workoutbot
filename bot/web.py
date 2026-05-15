@@ -296,6 +296,9 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         kcal_detail = compute_target_kcal_detailed(user_id, today_str)
         today_meals_dash = get_meals_for_date(user_id, today_str)
         today_meal_kcal = sum((m.get("estimated_kcal") or 0) for m in today_meals_dash)
+        today_p = sum((m.get("protein_g") or 0) for m in today_meals_dash)
+        today_c = sum((m.get("carbs_g") or 0) for m in today_meals_dash)
+        today_f = sum((m.get("fat_g") or 0) for m in today_meals_dash)
         for g in active_goals:
             try:
                 g["days_left"] = (datetime.strptime(g["target_date"], "%Y-%m-%d").date() - date.today()).days
@@ -323,6 +326,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         today_plan = None
         kcal_detail = None
         today_meal_kcal = 0
+        today_p = today_c = today_f = 0
 
     cal_data = _build_calendar_data(cal_records, cal_year, cal_month)
     # Calendar grid: weeks as list of days (Mon=0)
@@ -373,6 +377,9 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         "today_str": today_str,
         "kcal_detail": kcal_detail,
         "today_meal_kcal": today_meal_kcal,
+        "today_p": today_p,
+        "today_c": today_c,
+        "today_f": today_f,
     })
 
 
@@ -847,6 +854,9 @@ async def meals_page(request: Request, date_str: Optional[str] = Query(None, ali
     today_meals = get_meals_for_date(user["user_id"], today_str)
     recent = get_recent_meals(user["user_id"], 30)
     today_kcal = sum((m.get("estimated_kcal") or 0) for m in today_meals)
+    today_p = sum((m.get("protein_g") or 0) for m in today_meals)
+    today_c = sum((m.get("carbs_g") or 0) for m in today_meals)
+    today_f = sum((m.get("fat_g") or 0) for m in today_meals)
     detail = compute_target_kcal_detailed(user["user_id"], today_str)
     target_kcal = detail.get("target_kcal")
     source_label = {
@@ -862,6 +872,9 @@ async def meals_page(request: Request, date_str: Optional[str] = Query(None, ali
         "today_meals": today_meals,
         "recent": recent,
         "today_kcal": today_kcal,
+        "today_p": today_p,
+        "today_c": today_c,
+        "today_f": today_f,
         "target_kcal": target_kcal,
         "target_source_label": source_label,
         "remaining_kcal": remaining_kcal,

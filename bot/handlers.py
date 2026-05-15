@@ -564,11 +564,16 @@ def message_date_kst(message) -> str:
 
 
 def format_meal_kcal_status(user_id: int, date: str) -> str:
-    """Build the kcal status block appended to meal replies: 오늘 합계 / 목표 / 남은 허용 + 계산 근거."""
+    """Build the kcal+macro status block appended to meal replies."""
     meals = get_meals_for_date(user_id, date)
     today_kcal = sum((m.get("estimated_kcal") or 0) for m in meals)
+    today_p = sum((m.get("protein_g") or 0) for m in meals)
+    today_c = sum((m.get("carbs_g") or 0) for m in meals)
+    today_f = sum((m.get("fat_g") or 0) for m in meals)
+
     detail = compute_target_kcal_detailed(user_id, date)
     target = detail.get("target_kcal")
+    macros = detail.get("macros")
 
     source_note = {
         "plan": "/plan 기반",
@@ -576,14 +581,32 @@ def format_meal_kcal_status(user_id: int, date: str) -> str:
         "maintain-tdee": "유지 칼로리 (TDEE)",
     }.get(detail.get("source"), "")
 
-    lines = [f"\n📊 <b>오늘 섭취 합계</b>: {int(today_kcal)} kcal"]
+    lines = [
+        f"\n📊 <b>오늘 섭취</b>: {int(today_kcal)} kcal"
+        + (f"  (P {int(today_p)}g · C {int(today_c)}g · F {int(today_f)}g)" if (today_p or today_c or today_f) else "")
+    ]
     if target:
         remaining = target - today_kcal
         lines.append(f"🎯 목표: <b>{int(target)}</b> kcal" + (f" <i>({source_note})</i>" if source_note else ""))
+        if macros:
+            lines.append(
+                f"   • 단백 <b>{macros['protein_g']}g</b> · "
+                f"탄수 <b>{macros['carbs_g']}g</b> · "
+                f"지방 <b>{macros['fat_g']}g</b>"
+            )
         if remaining >= 0:
             lines.append(f"✅ 남은 허용: <b>{int(remaining)}</b> kcal")
         else:
             lines.append(f"⚠️ 초과: <b>{int(-remaining)}</b> kcal")
+        if macros:
+            rp = macros["protein_g"] - today_p
+            rc = macros["carbs_g"] - today_c
+            rf = macros["fat_g"] - today_f
+            def fmt(label, val):
+                if val > 0:
+                    return f"{label} +{int(val)}g 더"
+                return f"{label} -{int(-val)}g 초과"
+            lines.append(f"   • {fmt('단백', rp)} · {fmt('탄수', rc)} · {fmt('지방', rf)}")
         if detail.get("source") == "goal-derived" and detail.get("reasoning_md"):
             lines.append(f"\n<blockquote>{detail['reasoning_md']}</blockquote>")
     else:
@@ -1580,35 +1603,113 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     status_msg = await update.message.reply_text("📅 오늘의 계획 생성 중...")
 
     try:
-        ctx_md = _build_plan_context(target_user_id, chat_id, date)
+        # Pre-compute calorie + macro targets so the LLM works backwards from them
+        # instead of inventing its own numbers.
+        kcal_detail = compute_target_kcal_detailed(target_user_id, date)
+        targets_block = []
+        if kcal_detail.get("target_kcal"):
+            targets_block.append(f"## 사전 계산된 목표 (이 수치를 따르세요)")
+            targets_block.append(f"- 일일 섭취 목표: **{int(kcal_detail['target_kcal'])} kcal**")
+            m = kcal_detail.get("macros") or {}
+            if m:
+                targets_block.append(
+                    f"- 매크로 ({m.get('direction', 'maintain')}): "
+                    f"단백 {m['protein_g']}g ({m['protein_pct']}%) · "
+                    f"탄수 {m['carbs_g']}g ({m['carbs_pct']}%) · "
+                    f"지방 {m['fat_g']}g ({m['fat_pct']}%)"
+                )
+            if kcal_detail.get("bmr"):
+                targets_block.append(f"- BMR: {int(kcal_detail['bmr'])} kcal · TDEE: {int(kcal_detail['tdee'])} kcal")
+            if kcal_detail.get("days_left"):
+                targets_block.append(f"- 목표일까지 D-{kcal_detail['days_left']}")
+        ctx_md = "\n".join(targets_block) + "\n\n" + _build_plan_context(target_user_id, chat_id, date)
+
         data = await generate_daily_plan(ctx_md)
         if not data:
             await status_msg.edit_text("❌ 계획 생성 실패")
             return
 
+        # Render each meal as HTML for the legacy *_suggestion columns and the reply.
+        meals_dict = data.get("meals") or {}
+        breakfast_html = _render_meal_html(meals_dict.get("breakfast"))
+        lunch_html = _render_meal_html(meals_dict.get("lunch"))
+        dinner_html = _render_meal_html(meals_dict.get("dinner"))
+
+        # If LLM didn't provide intake target, fall back to our pre-computed one.
+        target_intake = data.get("target_kcal_intake") or kcal_detail.get("target_kcal")
+        if not data.get("macros") and kcal_detail.get("macros"):
+            data["macros"] = kcal_detail["macros"]
+
         upsert_daily_plan(
             target_user_id, chat_id, date,
-            data.get("target_kcal_intake"),
+            target_intake,
             data.get("target_kcal_burn"),
-            data.get("breakfast", ""),
-            data.get("lunch", ""),
-            data.get("dinner", ""),
+            breakfast_html,
+            lunch_html,
+            dinner_html,
             json.dumps(data, ensure_ascii=False),
         )
 
         await status_msg.delete()
         await _send_plan(update, {
             "date": date,
-            "target_kcal_intake": data.get("target_kcal_intake"),
+            "target_kcal_intake": target_intake,
             "target_kcal_burn": data.get("target_kcal_burn"),
-            "breakfast_suggestion": data.get("breakfast", ""),
-            "lunch_suggestion": data.get("lunch", ""),
-            "dinner_suggestion": data.get("dinner", ""),
+            "breakfast_suggestion": breakfast_html,
+            "lunch_suggestion": lunch_html,
+            "dinner_suggestion": dinner_html,
             "full_plan": json.dumps(data, ensure_ascii=False),
         })
     except Exception as e:
         logger.error(f"Plan generation error: {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+def _render_meal_html(meal: dict | None) -> str:
+    """Render a meal dict (kcal/P/C/F/items/title/notes_md) as HTML for Telegram + dashboard."""
+    if not meal:
+        return ""
+    parts = []
+    title = meal.get("title", "")
+    kcal = meal.get("kcal")
+    p = meal.get("protein_g")
+    c = meal.get("carbs_g")
+    f = meal.get("fat_g")
+
+    header_bits = []
+    if title:
+        header_bits.append(f"<b>{html.escape(title)}</b>")
+    macro_line = []
+    if kcal is not None:
+        macro_line.append(f"{int(kcal)} kcal")
+    if p is not None or c is not None or f is not None:
+        macro_line.append(f"P {int(p or 0)}g · C {int(c or 0)}g · F {int(f or 0)}g")
+    if macro_line:
+        header_bits.append(f"<i>({' · '.join(macro_line)})</i>")
+    if header_bits:
+        parts.append(" ".join(header_bits))
+
+    items = meal.get("items") or []
+    for it in items:
+        if isinstance(it, dict):
+            name = html.escape(str(it.get("name", "")))
+            amount = html.escape(str(it.get("amount", "")))
+            ikcal = it.get("kcal")
+            ip = it.get("protein_g")
+            ic = it.get("carbs_g")
+            ifa = it.get("fat_g")
+            sub_bits = []
+            if ikcal is not None:
+                sub_bits.append(f"{int(ikcal)}kcal")
+            if any(v is not None for v in (ip, ic, ifa)):
+                sub_bits.append(f"P{int(ip or 0)}/C{int(ic or 0)}/F{int(ifa or 0)}")
+            sub = f" — {' · '.join(sub_bits)}" if sub_bits else ""
+            parts.append(f"• {name} ({amount}){sub}")
+        else:
+            parts.append(f"• {html.escape(str(it))}")
+    if meal.get("notes_md"):
+        parts.append(f"<i>{meal['notes_md']}</i>")
+    return "<br>".join(parts)
 
 
 async def _send_plan(update: Update, plan: dict) -> None:
@@ -1618,22 +1719,47 @@ async def _send_plan(update: Update, plan: dict) -> None:
         full = {}
     intake = plan.get("target_kcal_intake")
     burn = plan.get("target_kcal_burn")
+    macros = full.get("macros") or {}
     parts = [f"📅 <b>오늘의 계획</b> ({plan.get('date', '')})\n"]
     if intake:
         parts.append(f"• 권장 섭취: <b>{int(intake)} kcal</b>")
+    if macros and (macros.get("protein_g") or macros.get("carbs_g") or macros.get("fat_g")):
+        parts.append(
+            f"   • 단백 <b>{int(macros.get('protein_g', 0))}g</b> · "
+            f"탄수 <b>{int(macros.get('carbs_g', 0))}g</b> · "
+            f"지방 <b>{int(macros.get('fat_g', 0))}g</b>"
+        )
     if burn:
         parts.append(f"• 권장 소모: <b>{int(burn)} kcal</b>")
     parts.append("")
-    if plan.get("breakfast_suggestion"):
-        parts.append(f"🌅 <b>아침</b>\n{plan['breakfast_suggestion']}\n")
-    if plan.get("lunch_suggestion"):
-        parts.append(f"☀️ <b>점심</b>\n{plan['lunch_suggestion']}\n")
-    if plan.get("dinner_suggestion"):
-        parts.append(f"🌙 <b>저녁</b>\n{plan['dinner_suggestion']}\n")
+
+    # Prefer the rich meal dicts from full_plan; fall back to legacy *_suggestion columns.
+    meals_dict = (full.get("meals") or {})
+    def block(emoji: str, label: str, key: str, legacy: str):
+        meal = meals_dict.get(key)
+        html_str = _render_meal_html(meal) if meal else legacy
+        if html_str:
+            parts.append(f"{emoji} <b>{label}</b>\n{html_str}\n")
+
+    block("🌅", "아침", "breakfast", plan.get("breakfast_suggestion", ""))
+    block("☀️", "점심", "lunch", plan.get("lunch_suggestion", ""))
+    block("🌙", "저녁", "dinner", plan.get("dinner_suggestion", ""))
+    snack = meals_dict.get("snack")
+    if snack:
+        snack_html = _render_meal_html(snack)
+        if snack_html:
+            parts.append(f"🍪 <b>간식</b>\n{snack_html}\n")
+
     if full.get("rationale_md"):
         parts.append(f"💡 <b>가이드</b>\n{full['rationale_md']}")
 
-    await update.message.reply_text("\n".join(parts), parse_mode="HTML")
+    msg = "\n".join(parts)
+    # Telegram message length cap; split if needed
+    if len(msg) > 4000:
+        await update.message.reply_text(msg[:4000], parse_mode="HTML")
+        await update.message.reply_text(msg[4000:], parse_mode="HTML")
+    else:
+        await update.message.reply_text(msg, parse_mode="HTML")
 
 
 async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

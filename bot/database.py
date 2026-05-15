@@ -913,6 +913,60 @@ def get_records_for_date(user_id: int, date: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def _infer_goal_direction(metric: Optional[str], delta_kg: Optional[float]) -> str:
+    """Return 'cut' | 'maintain' | 'bulk' | 'muscle-gain' based on goal metric+delta."""
+    if delta_kg is None or abs(delta_kg) < 0.5:
+        return "maintain"
+    if metric == "skeletal_muscle_kg" and delta_kg > 0:
+        return "muscle-gain"
+    if delta_kg < 0:
+        return "cut"
+    return "bulk"
+
+
+def compute_macro_targets(target_kcal: float, body_weight_kg: float, direction: str) -> dict:
+    """Split target_kcal into protein/carbs/fat grams using standard guidelines.
+
+    Per-kg-bodyweight protein and fat are fixed by direction; carbs absorb the
+    remaining calories. Protein 4 kcal/g, carbs 4 kcal/g, fat 9 kcal/g.
+
+    Direction presets:
+      - cut: protein 2.0 g/kg (muscle preservation), fat 0.8 g/kg
+      - maintain: protein 1.6 g/kg, fat 0.9 g/kg
+      - bulk: protein 2.0 g/kg, fat 1.0 g/kg
+      - muscle-gain: protein 2.2 g/kg, fat 0.9 g/kg
+    """
+    presets = {
+        "cut":         (2.0, 0.8),
+        "maintain":    (1.6, 0.9),
+        "bulk":        (2.0, 1.0),
+        "muscle-gain": (2.2, 0.9),
+    }
+    p_per_kg, f_per_kg = presets.get(direction, presets["maintain"])
+
+    protein_g = max(0, round(p_per_kg * body_weight_kg))
+    fat_g = max(0, round(f_per_kg * body_weight_kg))
+    protein_kcal = protein_g * 4
+    fat_kcal = fat_g * 9
+    carb_kcal_remaining = max(0.0, target_kcal - protein_kcal - fat_kcal)
+    carbs_g = max(0, round(carb_kcal_remaining / 4))
+    carbs_kcal = carbs_g * 4
+
+    total_kcal = protein_kcal + fat_kcal + carbs_kcal or 1
+    return {
+        "direction": direction,
+        "protein_g": protein_g,
+        "carbs_g": carbs_g,
+        "fat_g": fat_g,
+        "protein_kcal": protein_kcal,
+        "carbs_kcal": carbs_kcal,
+        "fat_kcal": fat_kcal,
+        "protein_pct": round(protein_kcal / total_kcal * 100, 1),
+        "carbs_pct": round(carbs_kcal / total_kcal * 100, 1),
+        "fat_pct": round(fat_kcal / total_kcal * 100, 1),
+    }
+
+
 def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
     """Compute daily calorie intake target from the user's primary goal + InBody.
 
@@ -945,16 +999,26 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
         "daily_delta_kcal": None,
         "weekly_delta_kg": None,
         "reasoning_md": "",
+        "macros": None,
     }
 
     plan = get_daily_plan(user_id, date)
+    latest = get_latest_inbody(user_id)
+    body_weight = (latest or {}).get("weight_kg") if latest else None
+
     if plan and plan.get("target_kcal_intake"):
         result["target_kcal"] = float(plan["target_kcal_intake"])
         result["source"] = "plan"
         result["reasoning_md"] = "오늘자 /plan에서 산출한 목표를 사용 중입니다."
+        if body_weight:
+            # We don't know plan-time direction; assume maintain unless primary goal exists
+            pg = get_primary_goal(user_id)
+            d = _infer_goal_direction(pg.get("metric") if pg else None,
+                                       (float(pg["target_value"]) - float(pg["start_value"]))
+                                       if (pg and pg.get("start_value") is not None) else None)
+            result["macros"] = compute_macro_targets(result["target_kcal"], float(body_weight), d)
         return result
 
-    latest = get_latest_inbody(user_id)
     bmr = (latest or {}).get("bmr_kcal") if latest else None
     if not bmr:
         result["reasoning_md"] = "BMR 정보가 없어서 목표 칼로리를 계산할 수 없습니다. /inbody로 인바디 사진을 등록해주세요."
@@ -970,6 +1034,8 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
         result["target_kcal"] = tdee
         result["source"] = "maintain-tdee"
         result["reasoning_md"] = f"활성 주 목표가 없어 유지 칼로리(TDEE) {int(tdee)} kcal로 설정. /goal로 목표를 추가하면 자동 조정됩니다."
+        if body_weight:
+            result["macros"] = compute_macro_targets(tdee, float(body_weight), "maintain")
         return result
 
     # Days remaining
@@ -996,6 +1062,8 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
         result["target_kcal"] = tdee
         result["source"] = "maintain-tdee"
         result["reasoning_md"] = "현재 수치를 알 수 없어 유지 칼로리를 사용합니다. 최신 인바디를 등록해주세요."
+        if body_weight:
+            result["macros"] = compute_macro_targets(tdee, float(body_weight), "maintain")
         return result
     current_val = float(current_val)
     result["current_value"] = current_val
@@ -1016,6 +1084,8 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
             result["target_kcal"] = tdee
             result["source"] = "maintain-tdee"
             result["reasoning_md"] = "체지방률 목표는 체중 정보가 필요합니다. /setweight 또는 인바디로 등록해주세요."
+            if body_weight:
+                result["macros"] = compute_macro_targets(tdee, float(body_weight), "maintain")
             return result
         cw = float(current_weight)
         current_fat_kg = cw * current_val / 100.0
@@ -1032,6 +1102,8 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
         result["target_kcal"] = tdee
         result["source"] = "maintain-tdee"
         result["reasoning_md"] = "알 수 없는 지표라 유지 칼로리를 사용합니다."
+        if body_weight:
+            result["macros"] = compute_macro_targets(tdee, float(body_weight), "maintain")
         return result
 
     result["delta_kg"] = delta_kg
@@ -1049,6 +1121,12 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
     result["target_kcal"] = clamped
     result["source"] = "goal-derived"
 
+    # Compute macros from goal direction + body weight
+    inferred_dir = _infer_goal_direction(metric, delta_kg)
+    bw_for_macros = (latest or {}).get("weight_kg") or body_weight
+    if bw_for_macros:
+        result["macros"] = compute_macro_targets(clamped, float(bw_for_macros), inferred_dir)
+
     # Human-readable reasoning
     metric_labels = {
         "weight": ("체중", "kg"),
@@ -1057,16 +1135,25 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
         "skeletal_muscle_kg": ("골격근량", "kg"),
     }
     lbl, unit = metric_labels.get(metric, (metric, ""))
-    direction = "감량" if delta_kg < 0 else ("증량" if delta_kg > 0 else "유지")
+    direction_label = "감량" if delta_kg < 0 else ("증량" if delta_kg > 0 else "유지")
     weekly = abs(result["weekly_delta_kg"])
     parts = [
         f"BMR <b>{int(bmr)}</b> · TDEE(중강도 활동) <b>{int(tdee)}</b> kcal",
         f"주 목표: {lbl} <b>{current_val}{unit}</b> → <b>{target_val}{unit}</b> by {primary['target_date']} (D-{days_left})",
-        f"필요 변화: <b>{delta_kg:+.2f} kg</b> ({direction}, 주 {weekly:.2f} kg)",
+        f"필요 변화: <b>{delta_kg:+.2f} kg</b> ({direction_label}, 주 {weekly:.2f} kg)",
         f"하루 칼로리 조정: <b>{int(daily_delta):+d}</b> kcal → 목표 섭취 <b>{int(clamped)}</b> kcal",
     ]
     if was_clamped:
         parts.append(f"<i>(안전 범위 [{int(floor)}, {int(ceiling)}]로 보정됨 — 목표가 너무 공격적입니다)</i>")
+    if result.get("macros") and bw_for_macros:
+        m = result["macros"]
+        dir_label = {"cut": "감량", "maintain": "유지", "bulk": "증량", "muscle-gain": "근비대"}.get(m["direction"], m["direction"])
+        parts.append(
+            f"매크로 비율 ({dir_label}, 체중 {bw_for_macros}kg 기준): "
+            f"단백 <b>{m['protein_g']}g</b> ({m['protein_pct']}%) · "
+            f"탄수 <b>{m['carbs_g']}g</b> ({m['carbs_pct']}%) · "
+            f"지방 <b>{m['fat_g']}g</b> ({m['fat_pct']}%)"
+        )
     result["reasoning_md"] = "<br>".join(parts)
 
     return result
