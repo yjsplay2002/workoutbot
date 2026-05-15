@@ -1728,7 +1728,7 @@ def _render_meal_html(meal: dict | None) -> str:
             parts.append(f"• {html.escape(str(it))}")
     if meal.get("notes_md"):
         parts.append(f"<i>{meal['notes_md']}</i>")
-    return "<br>".join(parts)
+    return "\n".join(parts)
 
 
 async def _send_plan(update: Update, plan: dict) -> None:

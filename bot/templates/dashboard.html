@@ -90,14 +90,14 @@
   {% if kcal_detail.reasoning_md %}
   <details style="margin-top:14px;font-size:.85em">
     <summary style="cursor:pointer;color:var(--text2)">🧮 계산 근거</summary>
-    <div style="margin-top:8px;padding:10px 14px;background:var(--card2);border-radius:6px;line-height:1.7">{{ kcal_detail.reasoning_md|safe }}</div>
+    <div style="margin-top:8px;padding:10px 14px;background:var(--card2);border-radius:6px;line-height:1.7">{{ kcal_detail.reasoning_md|nl2br }}</div>
   </details>
   {% endif %}
 </div>
 {% elif kcal_detail and kcal_detail.reasoning_md %}
 <h2>🎯 오늘의 칼로리 목표</h2>
 <div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px;color:var(--text2)">
-  {{ kcal_detail.reasoning_md|safe }}
+  {{ kcal_detail.reasoning_md|nl2br }}
 </div>
 {% endif %}
 
@@ -139,9 +139,9 @@
     <div><div style="font-size:.8em;color:var(--text2)">권장 소모</div><div style="font-size:1.2em;font-weight:700;color:var(--accent2)">{{ today_plan.target_kcal_burn|int }} kcal</div></div>
     {% endif %}
   </div>
-  {% if today_plan.breakfast_suggestion %}<div style="margin-top:8px"><b>🌅 아침</b><div class="content-box">{{ today_plan.breakfast_suggestion|safe_html }}</div></div>{% endif %}
-  {% if today_plan.lunch_suggestion %}<div style="margin-top:8px"><b>☀️ 점심</b><div class="content-box">{{ today_plan.lunch_suggestion|safe_html }}</div></div>{% endif %}
-  {% if today_plan.dinner_suggestion %}<div style="margin-top:8px"><b>🌙 저녁</b><div class="content-box">{{ today_plan.dinner_suggestion|safe_html }}</div></div>{% endif %}
+  {% if today_plan.breakfast_suggestion %}<div style="margin-top:8px"><b>🌅 아침</b><div class="content-box">{{ today_plan.breakfast_suggestion|nl2br }}</div></div>{% endif %}
+  {% if today_plan.lunch_suggestion %}<div style="margin-top:8px"><b>☀️ 점심</b><div class="content-box">{{ today_plan.lunch_suggestion|nl2br }}</div></div>{% endif %}
+  {% if today_plan.dinner_suggestion %}<div style="margin-top:8px"><b>🌙 저녁</b><div class="content-box">{{ today_plan.dinner_suggestion|nl2br }}</div></div>{% endif %}
 </div>
 {% endif %}
 {% endif %}

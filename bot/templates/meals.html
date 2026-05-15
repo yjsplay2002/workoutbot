@@ -59,7 +59,7 @@
 {% if kcal_detail and kcal_detail.reasoning_md %}
 <details style="background:var(--card2);border-radius:8px;padding:12px 16px;margin-bottom:24px;border:1px solid var(--border)">
   <summary style="cursor:pointer;color:var(--text2);font-size:.9em">🧮 칼로리·매크로 계산 근거</summary>
-  <div style="margin-top:10px;font-size:.9em;line-height:1.7">{{ kcal_detail.reasoning_md|safe }}</div>
+  <div style="margin-top:10px;font-size:.9em;line-height:1.7">{{ kcal_detail.reasoning_md|nl2br }}</div>
 </details>
 {% endif %}
 
@@ -82,10 +82,10 @@
   </div>
   {% endif %}
   {% if m.structured_md %}
-  <div class="content-box">{{ m.structured_md|safe_html }}</div>
+  <div class="content-box">{{ m.structured_md|nl2br }}</div>
   {% endif %}
   {% if m.analysis %}
-  <div class="content-box" style="font-size:.9em">{{ m.analysis|safe_html }}</div>
+  <div class="content-box" style="font-size:.9em">{{ m.analysis|nl2br }}</div>
   {% endif %}
   <div style="margin-top:8px;text-align:right">
     <button onclick="delMeal({{ m.id }})" style="background:transparent;color:var(--red);border:none;cursor:pointer;font-size:.85em">삭제</button>

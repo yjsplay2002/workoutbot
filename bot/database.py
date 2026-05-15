@@ -1154,7 +1154,7 @@ def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
             f"탄수 <b>{m['carbs_g']}g</b> ({m['carbs_pct']}%) · "
             f"지방 <b>{m['fat_g']}g</b> ({m['fat_pct']}%)"
         )
-    result["reasoning_md"] = "<br>".join(parts)
+    result["reasoning_md"] = "\n".join(parts)
 
     return result
 

@@ -409,6 +409,11 @@ MEAL_SYSTEM = (
     "  - 'menu':    matched from menu/label printed kcal — kcal authoritative\n"
     "  - 'image':   identified directly from food photo — kcal estimated\n"
     "  - 'caption': identified from user's text only — kcal estimated\n\n"
+    "HTML rules (CRITICAL — Telegram parses this strictly):\n"
+    "  - In *_md fields use ONLY these tags: <b>, <i>, <u>, <s>, <code>, <pre>, <blockquote>, <a>\n"
+    "  - For line breaks use real newline characters (\\n in JSON), NEVER <br> or <p>\n"
+    "  - For lists use bullets like '• item' on separate lines\n"
+    "  - No markdown (no **, ##, ```, |), no <br>, no tables, no <ul>/<li>/<div>\n\n"
     "If the message has explicit single-meal LOCK (system tells you 'lock_to_default'), put ALL "
     "items under that single meal_type and ignore other meal labels in the caption.\n\n"
     "If you cannot identify any food from either image or caption: {\"meals_by_type\": {}}"
@@ -481,19 +486,45 @@ async def extract_meal_from_text(text: str, default_meal_type: str, user_ctx: st
     return data
 
 
+_BR_PATTERN = re.compile(r'<\s*br\s*/?\s*>', re.IGNORECASE)
+_UNSUPPORTED_TG_TAGS = re.compile(r'</?\s*(p|div|ul|ol|li|h[1-6]|table|tr|td|th|tbody|thead|span)[^>]*>', re.IGNORECASE)
+
+
+def _sanitize_telegram_html(text: str) -> str:
+    """Telegram HTML parser is strict — convert <br> variants to newlines and strip
+    other unsupported block tags. Bullets and existing newlines preserved."""
+    if not isinstance(text, str):
+        return text
+    text = _BR_PATTERN.sub("\n", text)
+    text = _UNSUPPORTED_TG_TAGS.sub("", text)
+    return text
+
+
+def _sanitize_dict(obj):
+    """Recursively walk a dict/list/value and clean Telegram-unsafe HTML from strings."""
+    if isinstance(obj, dict):
+        return {k: _sanitize_dict(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_dict(v) for v in obj]
+    if isinstance(obj, str):
+        return _sanitize_telegram_html(obj)
+    return obj
+
+
 def _safe_json(content: str) -> dict:
     try:
         data = json.loads(content)
-        return data if isinstance(data, dict) else {}
     except json.JSONDecodeError:
         m = re.search(r'\{.*\}', content, re.DOTALL)
         if not m:
             return {}
         try:
             data = json.loads(m.group(0))
-            return data if isinstance(data, dict) else {}
         except json.JSONDecodeError:
             return {}
+    if not isinstance(data, dict):
+        return {}
+    return _sanitize_dict(data)
 
 
 # ── Daily plan / summary ─────────────────────────────────────
@@ -529,7 +560,9 @@ PLAN_SYSTEM = (
     "- Sum of meals (excluding snack overlap) should approximately match target_kcal_intake (±10%) and macros.\n"
     "- Use specific Korean-context foods with realistic portion sizes (grams, 컵, 개수). 일반인이 한국에서 쉽게 구할 수 있는 재료.\n"
     "- Adjust meal composition by direction: 감량(cut)이면 단백질·채소 위주, 증량(bulk)이면 탄수 비중 증가, 근비대(muscle-gain)면 단백질+탄수.\n"
-    "- HTML only for *_md fields (<b>, <i>, •, <br>). No markdown, no tables.\n"
+    "- For *_md fields use Telegram-safe HTML: only <b>, <i>, <u>, <s>, <code>, <pre>, <blockquote>, <a>. "
+    "Use ACTUAL newline characters (\\n) for line breaks. NEVER use <br>, <p>, <div>, <ul>, <li>, or tables. "
+    "Bullets via • prefix on a new line.\n"
     "- All text in Korean."
 )
 
