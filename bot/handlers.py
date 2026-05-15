@@ -35,6 +35,7 @@ from bot.database import (
     delete_inbody,
     delete_meal,
     delete_record,
+    compute_target_kcal_detailed,
     estimate_daily_target_kcal,
     get_daily_plan,
     get_daily_summary,
@@ -563,18 +564,17 @@ def message_date_kst(message) -> str:
 
 
 def format_meal_kcal_status(user_id: int, date: str) -> str:
-    """Build the kcal status block to append to meal reply:
-    오늘 합계 / 목표 / 남은 허용 (or 초과)."""
+    """Build the kcal status block appended to meal replies: 오늘 합계 / 목표 / 남은 허용 + 계산 근거."""
     meals = get_meals_for_date(user_id, date)
     today_kcal = sum((m.get("estimated_kcal") or 0) for m in meals)
-    target, source = estimate_daily_target_kcal(user_id, date)
+    detail = compute_target_kcal_detailed(user_id, date)
+    target = detail.get("target_kcal")
 
     source_note = {
-        "plan": "/plan으로 계산된 목표",
-        "estimate-cut": "감량 추정치",
-        "estimate-bulk": "증량 추정치",
-        "estimate-tdee": "유지 추정치 (TDEE)",
-    }.get(source, "")
+        "plan": "/plan 기반",
+        "goal-derived": "목표·인바디 기반 자동 계산",
+        "maintain-tdee": "유지 칼로리 (TDEE)",
+    }.get(detail.get("source"), "")
 
     lines = [f"\n📊 <b>오늘 섭취 합계</b>: {int(today_kcal)} kcal"]
     if target:
@@ -584,8 +584,10 @@ def format_meal_kcal_status(user_id: int, date: str) -> str:
             lines.append(f"✅ 남은 허용: <b>{int(remaining)}</b> kcal")
         else:
             lines.append(f"⚠️ 초과: <b>{int(-remaining)}</b> kcal")
+        if detail.get("source") == "goal-derived" and detail.get("reasoning_md"):
+            lines.append(f"\n<blockquote>{detail['reasoning_md']}</blockquote>")
     else:
-        lines.append("ℹ️ 칼로리 목표가 설정되지 않았습니다. /inbody 로 인바디 등록 후 /goal 로 목표 추가, 또는 /plan 으로 일일 계획 생성.")
+        lines.append("ℹ️ " + (detail.get("reasoning_md") or "/inbody 로 인바디 등록 후 /goal 로 목표 추가하세요."))
     return "\n".join(lines)
 
 

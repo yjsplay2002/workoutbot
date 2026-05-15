@@ -913,44 +913,169 @@ def get_records_for_date(user_id: int, date: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-def estimate_daily_target_kcal(user_id: int, date: str) -> tuple:
-    """Returns (target_kcal_or_None, source_str).
+def compute_target_kcal_detailed(user_id: int, date: str) -> dict:
+    """Compute daily calorie intake target from the user's primary goal + InBody.
 
-    source_str ∈ {"plan", "estimate-cut", "estimate-bulk", "estimate-tdee", "none"}.
+    Method:
+      1. If /plan generated today's daily_plans row → use that directly
+      2. Else if InBody BMR available:
+         - TDEE = BMR × 1.45 (moderate activity)
+         - From primary goal: compute required body change (kg of fat / muscle / weight)
+         - Required daily kcal delta = (delta_kg × kcal_per_kg) / days_remaining
+           - 1 kg fat ≈ 7700 kcal, 1 kg lean mass ≈ 5500 kcal (estimate)
+         - target_kcal = TDEE + daily_delta, clamped to [max(BMR, 1200), TDEE + 800]
+      3. Else (no BMR): None
 
-    Priority:
-      1. daily_plans.target_kcal_intake (set by /plan)
-      2. BMR (from latest InBody) × 1.45 with ±500/+300 adjustment based on primary
-         goal direction (cut / bulk / maintain)
-      3. None if no BMR available
+    Returns dict with keys:
+      - target_kcal: float or None
+      - source: 'plan' | 'goal-derived' | 'maintain-tdee' | 'none'
+      - bmr, tdee, days_left, current_value, target_value, metric, delta_kg,
+        daily_delta_kcal, weekly_delta_kg, reasoning_md (human-readable HTML)
     """
+    result: dict = {
+        "target_kcal": None,
+        "source": "none",
+        "bmr": None,
+        "tdee": None,
+        "days_left": None,
+        "current_value": None,
+        "target_value": None,
+        "metric": None,
+        "delta_kg": None,
+        "daily_delta_kcal": None,
+        "weekly_delta_kg": None,
+        "reasoning_md": "",
+    }
+
     plan = get_daily_plan(user_id, date)
     if plan and plan.get("target_kcal_intake"):
-        return float(plan["target_kcal_intake"]), "plan"
+        result["target_kcal"] = float(plan["target_kcal_intake"])
+        result["source"] = "plan"
+        result["reasoning_md"] = "오늘자 /plan에서 산출한 목표를 사용 중입니다."
+        return result
 
     latest = get_latest_inbody(user_id)
-    bmr = (latest or {}).get("bmr_kcal")
+    bmr = (latest or {}).get("bmr_kcal") if latest else None
     if not bmr:
-        return None, "none"
+        result["reasoning_md"] = "BMR 정보가 없어서 목표 칼로리를 계산할 수 없습니다. /inbody로 인바디 사진을 등록해주세요."
+        return result
 
-    tdee = float(bmr) * 1.45
+    bmr = float(bmr)
+    tdee = bmr * 1.45
+    result["bmr"] = bmr
+    result["tdee"] = tdee
 
     primary = get_primary_goal(user_id)
-    if primary and primary.get("start_value") is not None:
-        metric = primary["metric"]
-        start = float(primary["start_value"])
-        target = float(primary["target_value"])
-        if metric == "weight":
-            if target < start:
-                return tdee - 500, "estimate-cut"
-            if target > start:
-                return tdee + 300, "estimate-bulk"
-        elif metric == "body_fat_pct" and target < start:
-            return tdee - 500, "estimate-cut"
-        elif metric == "skeletal_muscle_kg" and target > start:
-            return tdee + 300, "estimate-bulk"
+    if not primary:
+        result["target_kcal"] = tdee
+        result["source"] = "maintain-tdee"
+        result["reasoning_md"] = f"활성 주 목표가 없어 유지 칼로리(TDEE) {int(tdee)} kcal로 설정. /goal로 목표를 추가하면 자동 조정됩니다."
+        return result
 
-    return tdee, "estimate-tdee"
+    # Days remaining
+    try:
+        target_dt = datetime.strptime(primary["target_date"], "%Y-%m-%d").date()
+        today_dt = datetime.strptime(date, "%Y-%m-%d").date()
+        days_left = max(1, (target_dt - today_dt).days)
+    except Exception:
+        days_left = 30
+    result["days_left"] = days_left
+
+    metric = primary["metric"]
+    target_val = float(primary["target_value"])
+    result["metric"] = metric
+    result["target_value"] = target_val
+
+    # Current value — prefer latest InBody, fallback to goal start_value
+    current_val = latest.get(metric) if latest else None
+    if current_val is None and metric == "weight":
+        current_val = latest.get("weight_kg") if latest else None
+    if current_val is None:
+        current_val = primary.get("start_value")
+    if current_val is None:
+        result["target_kcal"] = tdee
+        result["source"] = "maintain-tdee"
+        result["reasoning_md"] = "현재 수치를 알 수 없어 유지 칼로리를 사용합니다. 최신 인바디를 등록해주세요."
+        return result
+    current_val = float(current_val)
+    result["current_value"] = current_val
+
+    # Compute kg-change to achieve + kcal/kg coefficient
+    KCAL_PER_KG_FAT = 7700.0
+    KCAL_PER_KG_MUSCLE = 5500.0
+    delta_kg = 0.0
+    kcal_per_kg = KCAL_PER_KG_FAT
+
+    if metric == "weight":
+        delta_kg = target_val - current_val
+        # Mostly fat change for cut/bulk in this context
+        kcal_per_kg = KCAL_PER_KG_FAT
+    elif metric == "body_fat_pct":
+        current_weight = (latest or {}).get("weight_kg")
+        if not current_weight:
+            result["target_kcal"] = tdee
+            result["source"] = "maintain-tdee"
+            result["reasoning_md"] = "체지방률 목표는 체중 정보가 필요합니다. /setweight 또는 인바디로 등록해주세요."
+            return result
+        cw = float(current_weight)
+        current_fat_kg = cw * current_val / 100.0
+        target_fat_kg = cw * target_val / 100.0
+        delta_kg = target_fat_kg - current_fat_kg
+        kcal_per_kg = KCAL_PER_KG_FAT
+    elif metric == "body_fat_kg":
+        delta_kg = target_val - current_val
+        kcal_per_kg = KCAL_PER_KG_FAT
+    elif metric == "skeletal_muscle_kg":
+        delta_kg = target_val - current_val
+        kcal_per_kg = KCAL_PER_KG_MUSCLE
+    else:
+        result["target_kcal"] = tdee
+        result["source"] = "maintain-tdee"
+        result["reasoning_md"] = "알 수 없는 지표라 유지 칼로리를 사용합니다."
+        return result
+
+    result["delta_kg"] = delta_kg
+    daily_delta = (delta_kg * kcal_per_kg) / days_left
+    result["daily_delta_kcal"] = daily_delta
+    result["weekly_delta_kg"] = (delta_kg / days_left) * 7
+
+    target_kcal = tdee + daily_delta
+
+    # Sanity clamps — never go below BMR or 1200, never above TDEE + 800
+    floor = max(bmr, 1200.0)
+    ceiling = tdee + 800.0
+    clamped = max(floor, min(ceiling, target_kcal))
+    was_clamped = abs(clamped - target_kcal) > 1
+    result["target_kcal"] = clamped
+    result["source"] = "goal-derived"
+
+    # Human-readable reasoning
+    metric_labels = {
+        "weight": ("체중", "kg"),
+        "body_fat_pct": ("체지방률", "%"),
+        "body_fat_kg": ("체지방량", "kg"),
+        "skeletal_muscle_kg": ("골격근량", "kg"),
+    }
+    lbl, unit = metric_labels.get(metric, (metric, ""))
+    direction = "감량" if delta_kg < 0 else ("증량" if delta_kg > 0 else "유지")
+    weekly = abs(result["weekly_delta_kg"])
+    parts = [
+        f"BMR <b>{int(bmr)}</b> · TDEE(중강도 활동) <b>{int(tdee)}</b> kcal",
+        f"주 목표: {lbl} <b>{current_val}{unit}</b> → <b>{target_val}{unit}</b> by {primary['target_date']} (D-{days_left})",
+        f"필요 변화: <b>{delta_kg:+.2f} kg</b> ({direction}, 주 {weekly:.2f} kg)",
+        f"하루 칼로리 조정: <b>{int(daily_delta):+d}</b> kcal → 목표 섭취 <b>{int(clamped)}</b> kcal",
+    ]
+    if was_clamped:
+        parts.append(f"<i>(안전 범위 [{int(floor)}, {int(ceiling)}]로 보정됨 — 목표가 너무 공격적입니다)</i>")
+    result["reasoning_md"] = "<br>".join(parts)
+
+    return result
+
+
+def estimate_daily_target_kcal(user_id: int, date: str) -> tuple:
+    """Backward-compat wrapper. Returns (target_kcal_or_None, source_label)."""
+    d = compute_target_kcal_detailed(user_id, date)
+    return d.get("target_kcal"), d.get("source", "none")
 
 
 def get_active_users_recent(days: int = 7) -> list[dict]:

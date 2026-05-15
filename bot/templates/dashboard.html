@@ -35,6 +35,48 @@
 <div class="empty" style="padding:20px">활성 목표가 없습니다. <a href="/goals">목표 추가 →</a></div>
 {% endif %}
 
+{# 일일 칼로리 목표 (목표·인바디 기반 자동 계산) #}
+{% if kcal_detail and kcal_detail.target_kcal %}
+{% set today_kcal = today_meal_kcal|int %}
+{% set tgt = kcal_detail.target_kcal|int %}
+{% set remaining = tgt - today_kcal %}
+<h2>🎯 오늘의 칼로리 목표 <a href="/meals" style="font-size:.7em;color:var(--text2);font-weight:400">식단 페이지</a></h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:0">
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">오늘 섭취</div>
+      <div style="font-size:1.5em;font-weight:700;color:var(--accent2)">{{ today_kcal }} <span style="font-size:.6em">kcal</span></div>
+    </div>
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">목표</div>
+      <div style="font-size:1.5em;font-weight:700;color:var(--accent2)">{{ tgt }} <span style="font-size:.6em">kcal</span></div>
+    </div>
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">{% if remaining < 0 %}⚠️ 초과{% else %}✅ 남은 허용{% endif %}</div>
+      <div style="font-size:1.5em;font-weight:700;{% if remaining < 0 %}color:var(--red){% else %}color:var(--green){% endif %}">{{ remaining|abs }} <span style="font-size:.6em">kcal</span></div>
+    </div>
+  </div>
+  {# Progress bar #}
+  {% set pct = ((today_kcal / tgt) * 100)|int if tgt else 0 %}
+  <div style="background:var(--card2);border-radius:4px;height:8px;margin-top:14px;overflow:hidden">
+    <div style="height:100%;width:{{ pct if pct <= 100 else 100 }}%;background:{% if remaining < 0 %}var(--red){% else %}linear-gradient(90deg,var(--accent),var(--accent2)){% endif %};transition:width .3s"></div>
+  </div>
+  <div style="font-size:.75em;color:var(--text2);margin-top:4px;text-align:right">{{ pct }}%</div>
+
+  {% if kcal_detail.reasoning_md %}
+  <details style="margin-top:14px;font-size:.85em">
+    <summary style="cursor:pointer;color:var(--text2)">🧮 계산 근거</summary>
+    <div style="margin-top:8px;padding:10px 14px;background:var(--card2);border-radius:6px;line-height:1.7">{{ kcal_detail.reasoning_md|safe }}</div>
+  </details>
+  {% endif %}
+</div>
+{% elif kcal_detail and kcal_detail.reasoning_md %}
+<h2>🎯 오늘의 칼로리 목표</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px;color:var(--text2)">
+  {{ kcal_detail.reasoning_md|safe }}
+</div>
+{% endif %}
+
 {# 최근 인바디 #}
 {% if latest_inbody %}
 <h2>📏 최근 인바디 <a href="/inbody" style="font-size:.7em;color:var(--text2);font-weight:400">전체 보기</a></h2>
