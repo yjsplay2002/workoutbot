@@ -367,10 +367,29 @@ async def extract_inbody(image_bytes: bytes, user_caption: str = "") -> dict:
 # ── Meal extraction ──────────────────────────────────────────
 
 MEAL_SYSTEM = (
-    "You are a Korean nutritionist. Analyze the meal and return STRICT JSON only.\n\n"
+    "You are a Korean nutritionist. Analyze what the user actually ate and return STRICT JSON only.\n\n"
+    "An incoming photo can be ANY of:\n"
+    "  (a) An actual plate/lunchbox/bowl/snack — extract the food visible in the image\n"
+    "  (b) A restaurant/cafe menu, menu board, kiosk screen, delivery app screenshot, "
+    "      or receipt — the user did NOT necessarily eat everything on the menu. "
+    "      Use the user's caption/note to determine which item(s) they actually ordered "
+    "      and consumed.\n"
+    "  (c) A nutrition label or food package — combine with caption to identify portion eaten\n"
+    "  (d) Text only (no image) — extract foods from the user's description\n\n"
+    "Rules:\n"
+    "- If the photo is a menu/receipt and the caption names a specific item (e.g. '아메리카노 마셨어' "
+    "or '치킨 카츠 정식 먹었어'), match that item from the menu. Prefer the caption over generic "
+    "guessing.\n"
+    "- If the menu/label prints kcal next to an item, USE THAT EXACT NUMBER. Do not re-estimate.\n"
+    "- If caption says '반만 먹었어', '한 입만', or similar partial-consumption hints, scale down "
+    "kcal and macros accordingly.\n"
+    "- If the photo is a plate and the caption adds context (e.g. '소스 빼고 먹었어'), apply the "
+    "caption adjustment.\n"
+    "- If the photo is unrelated (not menu, not food) and the caption alone names food, "
+    "extract from the caption only.\n\n"
     "Schema:\n"
     "{\n"
-    '  "items": [{"name": "음식명", "amount": "1인분/200g 등", "kcal": int}],\n'
+    '  "items": [{"name": "음식명", "amount": "1인분/200g 등", "kcal": int, "protein_g": float, "carbs_g": float, "fat_g": float, "source": "image"|"menu"|"caption"}],\n'
     '  "total_kcal": int,\n'
     '  "protein_g": float,\n'
     '  "carbs_g": float,\n'
@@ -378,7 +397,13 @@ MEAL_SYSTEM = (
     '  "summary_md": "<b>식단</b>...HTML 짧은 요약 (Korean, use <b>, <i>, • bullets, no markdown, no tables)",\n'
     '  "analysis_md": "<b>영양 평가</b>...HTML 분석 + 개선 추천 (Korean, 4-6 lines)"\n'
     "}\n\n"
-    "If you cannot identify any food, return: {\"items\": [], \"total_kcal\": 0, \"summary_md\": \"\", \"analysis_md\": \"식단을 인식하지 못했습니다.\"}"
+    "Each item's source field:\n"
+    "  - 'menu': matched from menu/label with printed kcal — kcal is authoritative\n"
+    "  - 'image': identified directly from food in photo — kcal estimated\n"
+    "  - 'caption': identified from user's text only — kcal estimated\n\n"
+    "Only return an empty items list if there is genuinely no food information from EITHER the "
+    "image OR the caption. In that case: "
+    "{\"items\": [], \"total_kcal\": 0, \"summary_md\": \"\", \"analysis_md\": \"식단 정보를 찾지 못했습니다. 무엇을 드셨는지 텍스트로 알려주세요.\"}"
 )
 
 
@@ -527,9 +552,14 @@ INTENT_CLASSIFIER_SYSTEM = (
     "- workout: 운동 기록. Exercise log/journal — sets, reps, weights, exercise names. "
     "Includes handwritten gym notebooks (even if hard to read), gym whiteboards, "
     "screenshots from fitness apps (Strong, Hevy, MyFitnessPal workout tab), workout text descriptions.\n"
-    "- meal: 식단. Food photo (plate, restaurant dish, lunchbox, snack), nutrition labels, "
-    "food/recipe text descriptions. meal_type optional — set it if obvious from time-of-day "
-    "context in the message; otherwise null.\n"
+    "- meal: 식단. Includes:\n"
+    "    • Food photo: plate, bowl, lunchbox, snack, restaurant dish\n"
+    "    • Menu board / restaurant menu / kiosk screen / delivery-app screenshot — especially "
+    "      when the caption names a specific item the user ordered\n"
+    "    • Nutrition label / food package\n"
+    "    • Food/recipe text descriptions\n"
+    "  meal_type optional — set it if obvious from caption (e.g. '아침 먹었어') or current "
+    "  time-of-day context; otherwise null.\n"
     "- inbody: 인바디. Body composition analysis sheet — InBody/Olympus/Tanita output showing "
     "weight, skeletal muscle, body fat %, BMR, BMI, etc. Usually a printout with bar charts.\n"
     "- unrelated: anything else — pets, scenery, screenshots of unrelated chat, code, memes, "

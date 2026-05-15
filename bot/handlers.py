@@ -563,6 +563,28 @@ def message_date_kst(message) -> str:
     return dt.astimezone(seoul).strftime("%Y-%m-%d")
 
 
+def format_meal_items_md(items: list) -> str:
+    """Render an items list from extract_meal_* into HTML lines.
+    Marks items whose kcal came from a printed menu source ('menu' tag) with 📋."""
+    lines = []
+    for it in items or []:
+        name = it.get("name", "")
+        amount = it.get("amount", "")
+        kcal = it.get("kcal")
+        p = it.get("protein_g")
+        c = it.get("carbs_g")
+        f = it.get("fat_g")
+        source = it.get("source", "")
+        prefix = "📋 " if source == "menu" else "• "
+        kcal_str = f"{int(kcal)}kcal" if kcal is not None else "?kcal"
+        macro_str = ""
+        if any(v is not None for v in (p, c, f)):
+            macro_str = f" · P{int(p or 0)}/C{int(c or 0)}/F{int(f or 0)}"
+        amount_str = f" ({amount})" if amount else ""
+        lines.append(f"{prefix}{name}{amount_str} — {kcal_str}{macro_str}")
+    return "\n".join(lines)
+
+
 def format_meal_kcal_status(user_id: int, date: str) -> str:
     """Build the kcal+macro status block appended to meal replies."""
     meals = get_meals_for_date(user_id, date)
@@ -828,10 +850,7 @@ async def _process_meal_image(
         await status_msg.edit_text("❌ 식사 사진으로 인식했지만 음식을 식별하지 못했습니다.")
         return
 
-    items_md = "\n".join(
-        f"• {it.get('name', '')} ({it.get('amount', '')}) — {it.get('kcal', '?')}kcal"
-        for it in data.get("items", [])
-    )
+    items_md = format_meal_items_md(data.get("items", []))
     structured_md = data.get("summary_md", "") or items_md
     analysis_md = data.get("analysis_md", "")
     kcal = data.get("total_kcal")
@@ -983,10 +1002,7 @@ async def _process_meal_text(
         await status_msg.edit_text("❌ 식사로 인식했지만 음식 구체화에 실패했습니다.")
         return
 
-    items_md = "\n".join(
-        f"• {it.get('name', '')} ({it.get('amount', '')}) — {it.get('kcal', '?')}kcal"
-        for it in data.get("items", [])
-    )
+    items_md = format_meal_items_md(data.get("items", []))
     structured_md = data.get("summary_md", "") or items_md
     analysis_md = data.get("analysis_md", "")
     kcal = data.get("total_kcal")
@@ -1255,10 +1271,7 @@ async def _cmd_meal(update: Update, context: ContextTypes.DEFAULT_TYPE, meal_typ
             await status_msg.edit_text("❌ 식단을 인식하지 못했습니다.")
             return
 
-        items_md = "\n".join(
-            f"• {it.get('name', '')} ({it.get('amount', '')}) — {it.get('kcal', '?')}kcal"
-            for it in data.get("items", [])
-        )
+        items_md = format_meal_items_md(data.get("items", []))
         structured_md = data.get("summary_md", "") or items_md
         analysis_md = data.get("analysis_md", "")
         kcal = data.get("total_kcal")
