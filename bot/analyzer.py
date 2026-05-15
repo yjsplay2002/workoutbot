@@ -81,20 +81,28 @@ def is_workout_text(text: str) -> bool:
     return matches >= 2 or (matches >= 1 and has_pattern)
 
 
-async def extract_from_image(image_bytes: bytes) -> str:
+async def extract_from_image(image_bytes: bytes, user_caption: str = "") -> str:
     b64 = base64.b64encode(image_bytes).decode()
     c = get_client()
+    user_content: list = [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+        {"type": "text", "text": "이 이미지에서 운동 기록을 추출해주세요. 날짜가 있다면 정확히 읽어주세요. 2자리 연도(예: 26)는 2026년입니다."},
+    ]
+    if user_caption:
+        user_content.append({
+            "type": "text",
+            "text": (
+                f"사용자가 사진과 함께 보낸 메모 (사진에 없는 세트·횟수·무게 등 추가 정보일 수 있음):\n"
+                f"{user_caption}\n\n"
+                "이미지와 메모를 종합하여 운동을 추출하세요. 메모에 세트·횟수·무게가 명시되어 있고 "
+                "사진에 그 운동기구나 환경이 보이면 메모의 수치를 사용하세요. 메모만으로 운동이 명확하면 메모 기준으로 추출해도 됩니다."
+            ),
+        })
     resp = await c.chat.completions.create(
         model=VISION_MODEL,
         messages=[
             {"role": "system", "content": EXTRACT_SYSTEM},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text", "text": "이 이미지에서 운동 기록을 추출해주세요. 날짜가 있다면 정확히 읽어주세요. 2자리 연도(예: 26)는 2026년입니다."},
-                ],
-            },
+            {"role": "user", "content": user_content},
         ],
         max_completion_tokens=1500,
     )
@@ -313,21 +321,24 @@ INBODY_SYSTEM = (
 )
 
 
-async def extract_inbody(image_bytes: bytes) -> dict:
+async def extract_inbody(image_bytes: bytes, user_caption: str = "") -> dict:
     """Extract InBody metrics from an image. Returns dict or {} if invalid."""
     b64 = base64.b64encode(image_bytes).decode()
     c = get_client()
+    user_content: list = [
+        {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
+        {"type": "text", "text": "이 인바디 이미지에서 측정값을 JSON으로만 추출하세요."},
+    ]
+    if user_caption:
+        user_content.append({
+            "type": "text",
+            "text": f"사용자 메모 (측정일·체중 등 부가 정보일 수 있음): {user_caption}",
+        })
     resp = await c.chat.completions.create(
         model=VISION_MODEL,
         messages=[
             {"role": "system", "content": INBODY_SYSTEM},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-                    {"type": "text", "text": "이 인바디 이미지에서 측정값을 JSON으로만 추출하세요."},
-                ],
-            },
+            {"role": "user", "content": user_content},
         ],
         max_completion_tokens=600,
         response_format={"type": "json_object"},

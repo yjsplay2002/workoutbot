@@ -487,12 +487,15 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
     photo = update.message.photo[-1]
     file = await context.bot.get_file(photo.file_id)
     image_bytes = bytes(await file.download_as_bytearray())
+    caption = (update.message.caption or "").strip()
 
     if key in _album_buffers:
         # Update target_user_id (use latest reply target)
         _album_buffers[key]["target_user_id"] = target_user_id
         # Add to existing buffer
         _album_buffers[key]["images"].append(image_bytes)
+        if caption:
+            _album_buffers[key]["captions"].append(caption)
         # Reset timer
         _album_buffers[key]["timer"].cancel()
         _album_buffers[key]["timer"] = asyncio.create_task(
@@ -511,6 +514,7 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         status_msg = await update.message.reply_text("📸 이미지 분석 준비 중...")
         _album_buffers[key] = {
             "images": [image_bytes],
+            "captions": [caption] if caption else [],
             "status_msg": status_msg,
             "update": update,
             "context": context,
@@ -548,6 +552,8 @@ async def _process_album_after_delay(
     user = update.effective_user
     target_user_id = buf.get("target_user_id", sender_id)
     images = buf["images"]
+    captions = buf.get("captions", [])
+    combined_caption = " ".join(captions).strip()
     status_msg = buf["status_msg"]
 
     if not check_rate_limit(chat_id):
@@ -561,34 +567,34 @@ async def _process_album_after_delay(
     count = len(images)
     await status_msg.edit_text(f"🤔 사진 {count}장 분류 중...")
 
-    # Classify intent on the first image. Other images assumed same kind.
+    # Classify intent on the first image, passing the caption as a strong hint —
+    # a dumbbell photo plus "10kg x 10회 4세트" should classify as workout even
+    # if the image alone is ambiguous.
     try:
-        intent_data = await classify_intent_from_image(images[0])
+        intent_data = await classify_intent_from_image(images[0], hint=combined_caption)
     except Exception as e:
         logger.error(f"Intent classification error: {e}")
-        # Fall back to workout flow rather than refusing — old behavior
         intent_data = {"intent": "workout", "confidence": 0.3}
 
     intent = (intent_data.get("intent") or "workout").lower()
     reason = intent_data.get("reason_md", "")
-    logger.info(f"Image intent={intent} confidence={intent_data.get('confidence')} reason={reason}")
+    logger.info(f"Image intent={intent} confidence={intent_data.get('confidence')} reason={reason} caption={combined_caption[:80]!r}")
 
     try:
         if intent == "inbody":
-            await _process_inbody_image(update, chat_id, user, target_user_id, images[0], status_msg)
+            await _process_inbody_image(update, chat_id, user, target_user_id, images[0], combined_caption, status_msg)
         elif intent == "meal":
             meal_type = (intent_data.get("meal_type") or "").lower() or _meal_type_by_time()
             if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
                 meal_type = _meal_type_by_time()
-            caption = (update.message.caption or "").strip()
-            await _process_meal_image(update, chat_id, user, target_user_id, images, meal_type, caption, status_msg)
+            await _process_meal_image(update, chat_id, user, target_user_id, images, meal_type, combined_caption, status_msg)
         elif intent == "unrelated":
             msg = "🤔 운동·식단·인바디 어느 것에도 해당되지 않는 사진으로 보입니다."
             if reason:
                 msg += f"\n<i>{reason}</i>"
             await status_msg.edit_text(msg, parse_mode="HTML")
         else:
-            await _process_workout_album(update, chat_id, user, target_user_id, images, status_msg)
+            await _process_workout_album(update, chat_id, user, target_user_id, images, combined_caption, status_msg)
     except Exception as e:
         logger.error(f"Dispatch error (intent={intent}): {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.")
@@ -596,15 +602,17 @@ async def _process_album_after_delay(
 
 async def _process_workout_album(
     update: Update, chat_id: int, user, target_user_id: int,
-    images: list[bytes], status_msg,
+    images: list[bytes], caption: str, status_msg,
 ) -> None:
-    """Extract workout records from one or more images, analyze, save."""
+    """Extract workout records from one or more images (+ optional caption text), analyze, save."""
     from bot.analyzer import extract_from_image as _extract_from_image
     count = len(images)
     await status_msg.edit_text(f"📸 운동 기록 추출 중... (1/{count})")
 
     async def extract_one(idx, img):
-        result = await _extract_from_image(img)
+        # Pass the caption to every image — it might describe sets/reps/weight
+        # that aren't visible in the photo (e.g. dumbbell photo + "10kg x 10 x 4").
+        result = await _extract_from_image(img, user_caption=caption)
         try:
             await status_msg.edit_text(f"📸 이미지 추출 중... ({idx + 1}/{count})")
         except Exception:
@@ -624,6 +632,16 @@ async def _process_workout_album(
         if "NO_WORKOUT_DATA" not in r:
             all_extracted.append(r)
 
+    # If the image yielded nothing but the caption itself describes a workout,
+    # fall back to text extraction on the caption — the photo was just context.
+    if not all_extracted and caption and is_workout_text(caption):
+        try:
+            text_result = await extract_from_text(caption)
+            if "NO_WORKOUT_DATA" not in text_result:
+                all_extracted.append(text_result)
+        except Exception as e:
+            logger.error(f"Caption fallback extraction error: {e}")
+
     if not all_extracted:
         await status_msg.edit_text(
             "운동 사진으로 인식했지만 기록을 추출하지 못했습니다.\n"
@@ -639,6 +657,10 @@ async def _process_workout_album(
     date_count = len(date_groups)
     await status_msg.edit_text(f"📊 {date_count}개 날짜 분석 중...")
 
+    raw_input_label = f"[image x{count}]"
+    if caption:
+        raw_input_label += f" caption: {caption}"
+
     async def analyze_one(date, data_list):
         combined = "\n\n".join(data_list)
         existing = get_today_record(chat_id, target_user_id, date)
@@ -652,7 +674,7 @@ async def _process_workout_album(
             analysis = await analyze_workout(combined, weight, format_history_summary(history), height_cm=height)
             kcal = extract_kcal(analysis)
             category = classify_workout(combined)
-            save_record(chat_id, target_user_id, f"[image x{len(data_list)}]", combined, analysis, kcal, date=date, category=category)
+            save_record(chat_id, target_user_id, raw_input_label, combined, analysis, kcal, date=date, category=category)
         return date, analysis
 
     analysis_results = await asyncio.gather(
@@ -676,11 +698,11 @@ async def _process_workout_album(
 
 async def _process_inbody_image(
     update: Update, chat_id: int, user, target_user_id: int,
-    image_bytes: bytes, status_msg,
+    image_bytes: bytes, caption: str, status_msg,
 ) -> None:
     """Extract InBody metrics, save, and reply."""
     await status_msg.edit_text("📊 인바디 수치 추출 중...")
-    metrics = await extract_inbody(image_bytes)
+    metrics = await extract_inbody(image_bytes, user_caption=caption)
     if not metrics:
         await status_msg.edit_text("❌ 인바디 이미지로 인식했지만 수치 추출에 실패했습니다.")
         return
@@ -790,8 +812,10 @@ async def _process_single_photo(
 
     status_msg = await update.message.reply_text("📸 이미지 분석 중...")
 
+    caption = (source_message.caption or "").strip()
+
     try:
-        structured = await extract_from_image(image_bytes)
+        structured = await extract_from_image(image_bytes, user_caption=caption)
         if "NO_WORKOUT_DATA" in structured:
             await status_msg.edit_text("이 이미지에서 운동 기록을 찾을 수 없습니다.")
             return
@@ -800,11 +824,12 @@ async def _process_single_photo(
         height = get_user_height(user.id, chat_id)
         history = get_recent_records(chat_id, user.id, 5)
         analysis = await analyze_workout(
-            structured, weight, format_history_summary(history)
+            structured, weight, format_history_summary(history), height_cm=height,
         )
         kcal = extract_kcal(analysis)
         category = classify_workout(structured)
-        save_record(chat_id, user.id, "[image]", structured, analysis, kcal, category=category)
+        raw = f"[image] {caption}".strip() if caption else "[image]"
+        save_record(chat_id, user.id, raw, structured, analysis, kcal, category=category)
         await status_msg.edit_text(analysis, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Photo analysis error: {e}")
@@ -1013,7 +1038,14 @@ async def cmd_inbody(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
         file = await context.bot.get_file(photo.file_id)
         image_bytes = bytes(await file.download_as_bytearray())
 
-        metrics = await extract_inbody(image_bytes)
+        # If caption follows the slash command (e.g. "/inbody 2026-05-15"), pass it through
+        caption = ""
+        if update.message.photo and update.message.caption:
+            caption = re.sub(r"^/inbody(@\w+)?\s*", "", update.message.caption).strip()
+        elif update.message.reply_to_message and update.message.reply_to_message.caption:
+            caption = update.message.reply_to_message.caption.strip()
+
+        metrics = await extract_inbody(image_bytes, user_caption=caption)
         if not metrics:
             await status_msg.edit_text("❌ 인바디 이미지로 인식되지 않습니다.")
             return
