@@ -8,12 +8,31 @@
 </div>
 
 <h2>{{ today_str }} 식단</h2>
-{% if today_meals %}
-{% set total_kcal = today_meals | selectattr('estimated_kcal') | sum(attribute='estimated_kcal') %}
-<div style="background:var(--card);border-radius:12px;padding:16px 20px;border:1px solid var(--border);margin-bottom:16px">
-  <div style="font-size:.85em;color:var(--text2)">오늘 총 섭취</div>
-  <div style="font-size:1.6em;font-weight:700;color:var(--accent2)">{{ total_kcal|int }} kcal</div>
+<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));margin-bottom:16px">
+  <div class="stat-card">
+    <div class="label">오늘 섭취</div>
+    <div class="value" style="font-size:1.4em">{{ today_kcal|int }} kcal</div>
+  </div>
+  {% if target_kcal %}
+  <div class="stat-card">
+    <div class="label">목표 {% if target_source_label %}<span style="font-size:.85em;color:var(--text2)">({{ target_source_label }})</span>{% endif %}</div>
+    <div class="value" style="font-size:1.4em">{{ target_kcal|int }} kcal</div>
+  </div>
+  <div class="stat-card" style="{% if remaining_kcal is not none and remaining_kcal < 0 %}border-color:var(--red){% endif %}">
+    <div class="label">{% if remaining_kcal is not none and remaining_kcal < 0 %}⚠️ 초과{% else %}✅ 남은 허용{% endif %}</div>
+    <div class="value" style="font-size:1.4em;{% if remaining_kcal is not none and remaining_kcal < 0 %}color:var(--red){% endif %}">
+      {% if remaining_kcal is not none %}{{ ((remaining_kcal|int)|abs) }}{% else %}-{% endif %} kcal
+    </div>
+  </div>
+  {% else %}
+  <div class="stat-card" style="border-color:var(--card2)">
+    <div class="label">목표</div>
+    <div class="value" style="font-size:.9em;color:var(--text2);font-weight:400">설정되지 않음<br><span style="font-size:.8em">/inbody → /goal 또는 /plan</span></div>
+  </div>
+  {% endif %}
 </div>
+
+{% if today_meals %}
 
 {% for m in today_meals %}
 {% set type_map = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"} %}

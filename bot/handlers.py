@@ -1,4 +1,5 @@
 import asyncio
+import html
 import json
 import logging
 import re
@@ -11,6 +12,7 @@ from bot.analyzer import (
     classify_intent_from_image,
     classify_intent_from_text,
     classify_workout,
+    extract_date,
     extract_from_image,
     extract_from_text,
     extract_inbody,
@@ -22,6 +24,7 @@ from bot.analyzer import (
     group_by_date,
     is_fitness_relevant_text,
     is_workout_text,
+    strip_date_line,
 )
 from bot.database import (
     GOAL_METRICS,
@@ -32,6 +35,7 @@ from bot.database import (
     delete_inbody,
     delete_meal,
     delete_record,
+    estimate_daily_target_kcal,
     get_daily_plan,
     get_daily_summary,
     get_group_clients,
@@ -345,7 +349,7 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if reply_msg.photo:
             await _process_single_photo(update, context, reply_msg)
         elif reply_msg.text:
-            await _process_text_workout(update, context, reply_msg.text)
+            await _process_text_workout(update, context, reply_msg.text, do_analyze=True)
         else:
             await update.message.reply_text("분석할 수 있는 메시지가 아닙니다.")
         return
@@ -355,14 +359,17 @@ async def cmd_analyze(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         await update.message.reply_text("📭 분석할 기록이 없습니다.")
         return
 
-    await update.message.reply_text("🔄 마지막 기록을 재분석 중...")
+    await update.message.reply_text("🔄 마지막 기록을 분석 중...")
     try:
         weight = get_user_weight(update.effective_user.id, update.effective_chat.id)
         height = get_user_height(update.effective_user.id, update.effective_chat.id)
         history = get_recent_records(update.effective_chat.id, update.effective_user.id, 5)
         analysis = await analyze_workout(
-            record["structured_md"], weight, format_history_summary(history)
+            record["structured_md"], weight, format_history_summary(history), height_cm=height,
         )
+        kcal = extract_kcal(analysis)
+        # Persist the result so the web dashboard shows it without re-running.
+        merge_record(record["id"], record["structured_md"], analysis, kcal, category=record.get("category"))
         await update.message.reply_text(analysis, parse_mode="HTML")
     except Exception as e:
         logger.error(f"Re-analysis error: {e}")
@@ -538,6 +545,50 @@ def _meal_type_by_time() -> str:
     return "snack"
 
 
+def message_date_kst(message) -> str:
+    """Date the user sent the message, in Asia/Seoul YYYY-MM-DD.
+
+    Telegram's Message.date is timezone-aware UTC. Convert to KST so a record sent
+    at 1 AM KST gets that day's date (not yesterday in UTC). Falls back to now()
+    if message or date is missing.
+    """
+    from zoneinfo import ZoneInfo
+    seoul = ZoneInfo("Asia/Seoul")
+    dt = getattr(message, "date", None) if message is not None else None
+    if dt is None:
+        dt = datetime.now(seoul)
+    elif dt.tzinfo is None:
+        dt = dt.replace(tzinfo=ZoneInfo("UTC"))
+    return dt.astimezone(seoul).strftime("%Y-%m-%d")
+
+
+def format_meal_kcal_status(user_id: int, date: str) -> str:
+    """Build the kcal status block to append to meal reply:
+    오늘 합계 / 목표 / 남은 허용 (or 초과)."""
+    meals = get_meals_for_date(user_id, date)
+    today_kcal = sum((m.get("estimated_kcal") or 0) for m in meals)
+    target, source = estimate_daily_target_kcal(user_id, date)
+
+    source_note = {
+        "plan": "/plan으로 계산된 목표",
+        "estimate-cut": "감량 추정치",
+        "estimate-bulk": "증량 추정치",
+        "estimate-tdee": "유지 추정치 (TDEE)",
+    }.get(source, "")
+
+    lines = [f"\n📊 <b>오늘 섭취 합계</b>: {int(today_kcal)} kcal"]
+    if target:
+        remaining = target - today_kcal
+        lines.append(f"🎯 목표: <b>{int(target)}</b> kcal" + (f" <i>({source_note})</i>" if source_note else ""))
+        if remaining >= 0:
+            lines.append(f"✅ 남은 허용: <b>{int(remaining)}</b> kcal")
+        else:
+            lines.append(f"⚠️ 초과: <b>{int(-remaining)}</b> kcal")
+    else:
+        lines.append("ℹ️ 칼로리 목표가 설정되지 않았습니다. /inbody 로 인바디 등록 후 /goal 로 목표 추가, 또는 /plan 으로 일일 계획 생성.")
+    return "\n".join(lines)
+
+
 async def _process_album_after_delay(
     key: tuple, update: Update, context: ContextTypes.DEFAULT_TYPE
 ) -> None:
@@ -649,51 +700,38 @@ async def _process_workout_album(
         )
         return
 
-    date_groups = group_by_date(all_extracted)
-    weight = get_user_weight(target_user_id, chat_id)
-    height = get_user_height(target_user_id, chat_id)
-    history = get_recent_records(chat_id, target_user_id, 5)
-
-    date_count = len(date_groups)
-    await status_msg.edit_text(f"📊 {date_count}개 날짜 분석 중...")
+    msg_date = message_date_kst(update.message)
+    date_groups = group_by_date(all_extracted, fallback_date=msg_date)
 
     raw_input_label = f"[image x{count}]"
     if caption:
         raw_input_label += f" caption: {caption}"
 
-    async def analyze_one(date, data_list):
+    saved_records = []
+    for date, data_list in sorted(date_groups.items()):
         combined = "\n\n".join(data_list)
+        category = classify_workout(combined)
         existing = get_today_record(chat_id, target_user_id, date)
         if existing:
             merged = existing["structured_md"] + "\n\n" + combined
-            analysis = await analyze_workout(merged, weight, format_history_summary(history), height_cm=height)
-            kcal = extract_kcal(analysis)
-            category = classify_workout(merged)
-            merge_record(existing["id"], merged, analysis, kcal, category=category)
+            # Preserve any existing analysis/kcal; merge_record sets to None otherwise.
+            merge_record(existing["id"], merged, existing.get("analysis") or "", existing.get("estimated_kcal"), category=category)
+            saved_records.append((existing["id"], date, merged, True))
         else:
-            analysis = await analyze_workout(combined, weight, format_history_summary(history), height_cm=height)
-            kcal = extract_kcal(analysis)
-            category = classify_workout(combined)
-            save_record(chat_id, target_user_id, raw_input_label, combined, analysis, kcal, date=date, category=category)
-        return date, analysis
-
-    analysis_results = await asyncio.gather(
-        *[analyze_one(d, dl) for d, dl in sorted(date_groups.items())],
-        return_exceptions=True,
-    )
-
-    results = []
-    for r in analysis_results:
-        if isinstance(r, Exception):
-            logger.error(f"Analysis error: {r}")
-            continue
-        date, analysis = r
-        results.append(f"📅 <b>{date}</b>\n{analysis}")
+            new_id = save_record(chat_id, target_user_id, raw_input_label, combined, "", None, date=date, category=category)
+            saved_records.append((new_id, date, combined, False))
 
     saved_for = f" (클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
-    await status_msg.edit_text(f"✅ {len(results)}개 날짜 분석 완료!{saved_for}")
-    for r in results:
-        await update.message.reply_text(r[:4000] if len(r) > 4000 else r, parse_mode="HTML")
+    header = f"✅ 운동 기록 저장 완료!{saved_for}"
+    blocks = [header]
+    for rec_id, date, structured, merged in saved_records:
+        title = f"📅 <b>{date}</b>" + (" <i>(오늘 기록에 병합)</i>" if merged else "")
+        body = html.escape((structured or "").strip())
+        if len(body) > 1500:
+            body = body[:1500] + "..."
+        blocks.append(f"{title}\n<pre>{body}</pre>\nID {rec_id} · 분석 리포트는 /analyze 또는 웹 대시보드에서 생성.")
+    msg = "\n\n".join(blocks)
+    await status_msg.edit_text(msg[:4000] if len(msg) > 4000 else msg, parse_mode="HTML")
 
 
 async def _process_inbody_image(
@@ -707,11 +745,12 @@ async def _process_inbody_image(
         await status_msg.edit_text("❌ 인바디 이미지로 인식했지만 수치 추출에 실패했습니다.")
         return
 
-    measured_at = metrics.get("measured_at") or datetime.now().strftime("%Y-%m-%d")
+    msg_date = message_date_kst(update.message)
+    measured_at = metrics.get("measured_at") or msg_date
     try:
         datetime.strptime(measured_at, "%Y-%m-%d")
     except (ValueError, TypeError):
-        measured_at = datetime.now().strftime("%Y-%m-%d")
+        measured_at = msg_date
 
     clean = {k: metrics.get(k) for k in [
         "weight_kg", "skeletal_muscle_kg", "body_fat_kg", "body_fat_pct",
@@ -777,7 +816,7 @@ async def _process_meal_image(
         "fat_g": data.get("fat_g"),
     }
 
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = message_date_kst(update.message)
     raw = f"[image] {caption}".strip()
     save_meal(chat_id, target_user_id, date, meal_type, raw, structured_md, kcal, macros, analysis_md)
 
@@ -790,6 +829,7 @@ async def _process_meal_image(
     ]
     if analysis_md:
         body += ["", analysis_md]
+    body.append(format_meal_kcal_status(target_user_id, date))
     if len(images) > 1:
         body.append(f"\n<i>(첫 번째 사진만 분석. 나머지 {len(images)-1}장은 무시.)</i>")
     if target_user_id != user.id:
@@ -931,7 +971,7 @@ async def _process_meal_text(
         "fat_g": data.get("fat_g"),
     }
 
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = message_date_kst(update.message)
     save_meal(chat_id, target_user_id, date, meal_type, text, structured_md, kcal, macros, analysis_md)
 
     meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
@@ -943,6 +983,7 @@ async def _process_meal_text(
     ]
     if analysis_md:
         body += ["", analysis_md]
+    body.append(format_meal_kcal_status(target_user_id, date))
     if target_user_id != user.id:
         body.append(f"\n(클라이언트 ID: {target_user_id} 기록으로 저장)")
     await status_msg.edit_text("\n".join(body), parse_mode="HTML")
@@ -951,7 +992,11 @@ async def _process_meal_text(
 async def _process_text_workout(
     update: Update, context: ContextTypes.DEFAULT_TYPE, text: str,
     *, status_msg=None, target_user_id: int | None = None,
+    do_analyze: bool = False,
 ) -> None:
+    """Extract a workout from text and save. With do_analyze=True, also generate
+    a full coach analysis (used by /analyze command). Default save-only path
+    just stores the structured record and returns a brief confirmation."""
     chat_id = update.effective_chat.id
     user = update.effective_user
     tuid = target_user_id if target_user_id is not None else user.id
@@ -960,9 +1005,9 @@ async def _process_text_workout(
         if not check_rate_limit(chat_id):
             return
         upsert_user(user.id, chat_id, user.full_name)
-        status_msg = await update.message.reply_text("📝 운동 기록 분석 중...")
+        status_msg = await update.message.reply_text("📝 운동 기록 추출 중...")
     else:
-        await status_msg.edit_text("📝 운동 기록 분석 중...")
+        await status_msg.edit_text("📝 운동 기록 추출 중...")
 
     try:
         structured = await extract_from_text(text)
@@ -970,35 +1015,60 @@ async def _process_text_workout(
             await status_msg.edit_text("운동 기록을 인식할 수 없습니다.")
             return
 
-        weight = get_user_weight(tuid, chat_id)
-        height = get_user_height(tuid, chat_id)
-        history = get_recent_records(chat_id, tuid, 5)
-
-        today = datetime.now().strftime("%Y-%m-%d")
-        existing = get_today_record(chat_id, tuid, today)
+        msg_date = message_date_kst(update.message)
+        # If the LLM extracted a DATE line from the user's text, honor it; otherwise
+        # use the message send date so workouts logged from a phone always pin to
+        # the day the user actually trained on.
+        record_date = extract_date(structured) or msg_date
+        structured_clean = strip_date_line(structured)
+        existing = get_today_record(chat_id, tuid, record_date)
+        category = classify_workout(structured_clean)
 
         if existing:
-            merged_structured = existing["structured_md"] + "\n\n" + structured
-            analysis = await analyze_workout(
-                merged_structured, weight, format_history_summary(history), height_cm=height,
-            )
-            kcal = extract_kcal(analysis)
-            category = classify_workout(merged_structured)
-            merge_record(existing["id"], merged_structured, analysis, kcal, category=category)
+            merged_structured = existing["structured_md"] + "\n\n" + structured_clean
+            structured_for_reply = merged_structured
+            rec_id = existing["id"]
+            if do_analyze:
+                weight = get_user_weight(tuid, chat_id)
+                height = get_user_height(tuid, chat_id)
+                history = get_recent_records(chat_id, tuid, 5)
+                analysis = await analyze_workout(
+                    merged_structured, weight, format_history_summary(history), height_cm=height,
+                )
+                kcal = extract_kcal(analysis)
+                merge_record(rec_id, merged_structured, analysis, kcal, category=classify_workout(merged_structured))
+            else:
+                merge_record(rec_id, merged_structured, existing.get("analysis") or "", existing.get("estimated_kcal"), category=classify_workout(merged_structured))
+            merged_flag = True
+        else:
+            if do_analyze:
+                weight = get_user_weight(tuid, chat_id)
+                height = get_user_height(tuid, chat_id)
+                history = get_recent_records(chat_id, tuid, 5)
+                analysis = await analyze_workout(
+                    structured_clean, weight, format_history_summary(history), height_cm=height,
+                )
+                kcal = extract_kcal(analysis)
+                rec_id = save_record(chat_id, tuid, text, structured_clean, analysis, kcal, date=record_date, category=category)
+            else:
+                rec_id = save_record(chat_id, tuid, text, structured_clean, "", None, date=record_date, category=category)
+            structured_for_reply = structured_clean
+            merged_flag = False
+
+        if do_analyze:
+            await status_msg.edit_text(analysis, parse_mode="HTML")
+        else:
+            title = f"📅 <b>{record_date}</b>" + (" <i>(오늘 기록에 병합)</i>" if merged_flag else "")
+            body = html.escape(structured_for_reply.strip())
+            if len(body) > 1500:
+                body = body[:1500] + "..."
             await status_msg.edit_text(
-                f"📋 오늘 기록에 병합 완료!\n\n{analysis}",
+                f"✅ 운동 기록 저장 완료!\n\n{title}\n<pre>{body}</pre>\n"
+                f"ID {rec_id} · 분석 리포트는 /analyze 또는 웹 대시보드에서 생성.",
                 parse_mode="HTML",
             )
-        else:
-            analysis = await analyze_workout(
-                structured, weight, format_history_summary(history), height_cm=height,
-            )
-            kcal = extract_kcal(analysis)
-            category = classify_workout(structured)
-            save_record(chat_id, tuid, text, structured, analysis, kcal, category=category)
-            await status_msg.edit_text(analysis, parse_mode="HTML")
     except Exception as e:
-        logger.error(f"Text analysis error: {e}")
+        logger.error(f"Text workout error: {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
 
 
@@ -1050,12 +1120,12 @@ async def cmd_inbody(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
             await status_msg.edit_text("❌ 인바디 이미지로 인식되지 않습니다.")
             return
 
-        measured_at = metrics.get("measured_at") or datetime.now().strftime("%Y-%m-%d")
-        # Normalize date
+        msg_date = message_date_kst(update.message)
+        measured_at = metrics.get("measured_at") or msg_date
         try:
             datetime.strptime(measured_at, "%Y-%m-%d")
         except (ValueError, TypeError):
-            measured_at = datetime.now().strftime("%Y-%m-%d")
+            measured_at = msg_date
 
         # Filter to known keys for save
         clean_metrics = {k: metrics.get(k) for k in [
@@ -1173,7 +1243,7 @@ async def _cmd_meal(update: Update, context: ContextTypes.DEFAULT_TYPE, meal_typ
             "fat_g": data.get("fat_g"),
         }
 
-        date = datetime.now().strftime("%Y-%m-%d")
+        date = message_date_kst(update.message)
         save_meal(
             chat_id, target_user_id, date, meal_type, raw,
             structured_md, kcal, macros, analysis_md,
@@ -1188,6 +1258,7 @@ async def _cmd_meal(update: Update, context: ContextTypes.DEFAULT_TYPE, meal_typ
         ]
         if analysis_md:
             body += ["", analysis_md]
+        body.append(format_meal_kcal_status(target_user_id, date))
         suffix = f"\n\n(클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
         await status_msg.edit_text("\n".join(body) + suffix, parse_mode="HTML")
     except Exception as e:
@@ -1489,7 +1560,7 @@ async def cmd_plan(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(err)
         return
 
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = message_date_kst(update.message)
     cached = get_daily_plan(target_user_id, date)
     refresh = bool(context.args and context.args[0].lower() in ("refresh", "new", "재생성"))
 
@@ -1574,7 +1645,7 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text(err)
         return
 
-    date = datetime.now().strftime("%Y-%m-%d")
+    date = message_date_kst(update.message)
     status_msg = await update.message.reply_text("📊 오늘 요약 생성 중...")
 
     try:
@@ -1603,7 +1674,8 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """JobQueue callback: send daily summary to each active user at 21:00 KST."""
     from bot.database import get_active_users_recent
-    date = datetime.now().strftime("%Y-%m-%d")
+    from zoneinfo import ZoneInfo
+    date = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
     users = get_active_users_recent(days=7)
     logger.info(f"Daily summary job firing for {len(users)} users on {date}")
 

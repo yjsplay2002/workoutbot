@@ -31,6 +31,7 @@ from bot.database import (
     get_meals_for_date,
     get_primary_goal,
     get_records_by_month,
+    estimate_daily_target_kcal,
     get_records_for_user,
     get_records_without_category,
     get_recent_meals,
@@ -655,6 +656,50 @@ async def api_delete_record(record_id: int, user: dict = Depends(require_user)):
     return JSONResponse({"error": "삭제 실패"}, status_code=403)
 
 
+@app.post("/api/records/{record_id}/analyze")
+async def api_analyze_record(record_id: int, user: dict = Depends(require_user)):
+    """Generate (or regenerate) the coach analysis for a record and persist it.
+    Called from the record detail page's '리포트 생성' button."""
+    from bot.analyzer import analyze_workout, extract_kcal, classify_workout
+    from bot.database import merge_record as db_merge_record, get_user_weight as db_get_user_weight, get_user_height as db_get_user_height
+    from bot.utils import format_history_summary as fmt_history
+
+    conn = get_conn()
+    row = conn.execute("SELECT * FROM records WHERE id=?", (record_id,)).fetchone()
+    if not row:
+        conn.close()
+        return JSONResponse({"error": "기록을 찾을 수 없습니다"}, status_code=404)
+    rec = dict(row)
+    # Access check — owner or trainer-of-the-group
+    if rec["user_id"] != user["user_id"]:
+        if not user.get("is_trainer") or rec["chat_id"] not in user.get("trainer_groups", []):
+            conn.close()
+            return JSONResponse({"error": "권한이 없습니다"}, status_code=403)
+    history_rows = conn.execute(
+        "SELECT * FROM records WHERE chat_id=? AND user_id=? AND id != ? ORDER BY created_at DESC LIMIT 5",
+        (rec["chat_id"], rec["user_id"], record_id),
+    ).fetchall()
+    conn.close()
+    history = [dict(r) for r in history_rows]
+
+    weight = db_get_user_weight(rec["user_id"], rec["chat_id"])
+    height = db_get_user_height(rec["user_id"], rec["chat_id"])
+
+    try:
+        analysis = await analyze_workout(
+            rec.get("structured_md") or "",
+            weight,
+            fmt_history(history),
+            height_cm=height,
+        )
+        kcal = extract_kcal(analysis)
+        category = classify_workout(rec.get("structured_md") or "") or rec.get("category")
+        db_merge_record(record_id, rec.get("structured_md") or "", analysis, kcal, category=category)
+        return JSONResponse({"ok": True, "analysis": analysis, "kcal": kcal})
+    except Exception as e:
+        return JSONResponse({"error": f"분석 중 오류: {e}"}, status_code=500)
+
+
 # ── Goals ────────────────────────────────────────────────────
 
 @app.get("/goals", response_class=HTMLResponse)
@@ -793,12 +838,25 @@ async def meals_page(request: Request, date_str: Optional[str] = Query(None, ali
         today_str = date.today().strftime("%Y-%m-%d")
     today_meals = get_meals_for_date(user["user_id"], today_str)
     recent = get_recent_meals(user["user_id"], 30)
+    today_kcal = sum((m.get("estimated_kcal") or 0) for m in today_meals)
+    target_kcal, target_source = estimate_daily_target_kcal(user["user_id"], today_str)
+    source_label = {
+        "plan": "/plan으로 계산",
+        "estimate-cut": "감량 추정치",
+        "estimate-bulk": "증량 추정치",
+        "estimate-tdee": "유지 추정치 (TDEE)",
+    }.get(target_source, "")
+    remaining_kcal = (target_kcal - today_kcal) if target_kcal else None
     return templates.TemplateResponse(request, "meals.html", {
         "request": request,
         "user": user,
         "today_str": today_str,
         "today_meals": today_meals,
         "recent": recent,
+        "today_kcal": today_kcal,
+        "target_kcal": target_kcal,
+        "target_source_label": source_label,
+        "remaining_kcal": remaining_kcal,
     })
 
 

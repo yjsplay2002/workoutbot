@@ -178,14 +178,19 @@ def strip_date_line(text: str) -> str:
     return re.sub(r'DATE:.*\n?', '', text).strip()
 
 
-def group_by_date(extractions: list[str]) -> dict[str, list[str]]:
-    """Group extracted workout data by date. Returns {date: [data1, data2, ...]}."""
+def group_by_date(extractions: list[str], fallback_date: Optional[str] = None) -> dict[str, list[str]]:
+    """Group extracted workout data by date. Returns {date: [data1, data2, ...]}.
+
+    fallback_date should be the message's send date in the user's timezone (KST);
+    used when an extracted record has no DATE line.
+    """
     from datetime import datetime
     groups: dict[str, list[str]] = {}
-    today = datetime.now().strftime("%Y-%m-%d")
+    if fallback_date is None:
+        fallback_date = datetime.now().strftime("%Y-%m-%d")
 
     for text in extractions:
-        date = extract_date(text) or today
+        date = extract_date(text) or fallback_date
         clean = strip_date_line(text)
         if clean:
             groups.setdefault(date, []).append(clean)

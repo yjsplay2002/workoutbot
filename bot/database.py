@@ -913,6 +913,46 @@ def get_records_for_date(user_id: int, date: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
+def estimate_daily_target_kcal(user_id: int, date: str) -> tuple:
+    """Returns (target_kcal_or_None, source_str).
+
+    source_str ∈ {"plan", "estimate-cut", "estimate-bulk", "estimate-tdee", "none"}.
+
+    Priority:
+      1. daily_plans.target_kcal_intake (set by /plan)
+      2. BMR (from latest InBody) × 1.45 with ±500/+300 adjustment based on primary
+         goal direction (cut / bulk / maintain)
+      3. None if no BMR available
+    """
+    plan = get_daily_plan(user_id, date)
+    if plan and plan.get("target_kcal_intake"):
+        return float(plan["target_kcal_intake"]), "plan"
+
+    latest = get_latest_inbody(user_id)
+    bmr = (latest or {}).get("bmr_kcal")
+    if not bmr:
+        return None, "none"
+
+    tdee = float(bmr) * 1.45
+
+    primary = get_primary_goal(user_id)
+    if primary and primary.get("start_value") is not None:
+        metric = primary["metric"]
+        start = float(primary["start_value"])
+        target = float(primary["target_value"])
+        if metric == "weight":
+            if target < start:
+                return tdee - 500, "estimate-cut"
+            if target > start:
+                return tdee + 300, "estimate-bulk"
+        elif metric == "body_fat_pct" and target < start:
+            return tdee - 500, "estimate-cut"
+        elif metric == "skeletal_muscle_kg" and target > start:
+            return tdee + 300, "estimate-bulk"
+
+    return tdee, "estimate-tdee"
+
+
 def get_active_users_recent(days: int = 7) -> list[dict]:
     """Users with any workout/meal/inbody activity in the last N days.
     Returns [{user_id, chat_id}] — uses latest activity's chat_id per user."""
