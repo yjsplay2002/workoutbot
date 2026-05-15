@@ -367,50 +367,71 @@ async def extract_inbody(image_bytes: bytes, user_caption: str = "") -> dict:
 # ── Meal extraction ──────────────────────────────────────────
 
 MEAL_SYSTEM = (
-    "You are a Korean nutritionist. Analyze what the user actually ate and return STRICT JSON only.\n\n"
-    "An incoming photo can be ANY of:\n"
-    "  (a) An actual plate/lunchbox/bowl/snack — extract the food visible in the image\n"
-    "  (b) A restaurant/cafe menu, menu board, kiosk screen, delivery app screenshot, "
-    "      or receipt — the user did NOT necessarily eat everything on the menu. "
-    "      Use the user's caption/note to determine which item(s) they actually ordered "
-    "      and consumed.\n"
-    "  (c) A nutrition label or food package — combine with caption to identify portion eaten\n"
-    "  (d) Text only (no image) — extract foods from the user's description\n\n"
-    "Rules:\n"
-    "- If the photo is a menu/receipt and the caption names a specific item (e.g. '아메리카노 마셨어' "
-    "or '치킨 카츠 정식 먹었어'), match that item from the menu. Prefer the caption over generic "
-    "guessing.\n"
-    "- If the menu/label prints kcal next to an item, USE THAT EXACT NUMBER. Do not re-estimate.\n"
-    "- If caption says '반만 먹었어', '한 입만', or similar partial-consumption hints, scale down "
-    "kcal and macros accordingly.\n"
-    "- If the photo is a plate and the caption adds context (e.g. '소스 빼고 먹었어'), apply the "
-    "caption adjustment.\n"
-    "- If the photo is unrelated (not menu, not food) and the caption alone names food, "
-    "extract from the caption only.\n\n"
+    "You are a Korean nutritionist. The user may log one OR several meals in a single message. "
+    "Read both the photo (if any) AND the caption/text to figure out what they ate, when they ate it, "
+    "and split into meal_type groups. Return STRICT JSON only.\n\n"
+    "Photo cases:\n"
+    "  (a) Plate/lunchbox/bowl/snack — extract visible food\n"
+    "  (b) Menu board / restaurant menu / kiosk / delivery-app screenshot / receipt — "
+    "      the user did NOT necessarily eat everything; use the caption to identify what they ordered. "
+    "      If kcal is printed on the menu, USE that exact number (mark source='menu').\n"
+    "  (c) Nutrition label / food package — combine with caption to identify portion eaten\n"
+    "  (d) No photo, text only — extract foods from the text\n\n"
+    "Meal-grouping rules:\n"
+    "  - If the user explicitly labels meals in the caption (e.g. '아침 X', '점심 Y', '저녁 Z', "
+    "    '간식'), split into those meal_types.\n"
+    "  - If only one meal is described, return one entry; pick its meal_type from any time-of-day "
+    "    word in caption ('아침에', '저녁으로', etc.) — otherwise use the provided default_meal_type.\n"
+    "  - If the caption explicitly references the photo (e.g. '첨부 메뉴판에서 치킨 샐러드 파스타 "
+    "    칼로리 찾아서 점심에 반영해줘'), match THAT item from the menu and assign to the meal_type "
+    "    the caption says.\n"
+    "  - Partial-consumption hints ('반만 먹었어', '한 입만') → scale down kcal/macros for that item.\n\n"
     "Schema:\n"
     "{\n"
-    '  "items": [{"name": "음식명", "amount": "1인분/200g 등", "kcal": int, "protein_g": float, "carbs_g": float, "fat_g": float, "source": "image"|"menu"|"caption"}],\n'
-    '  "total_kcal": int,\n'
-    '  "protein_g": float,\n'
-    '  "carbs_g": float,\n'
-    '  "fat_g": float,\n'
-    '  "summary_md": "<b>식단</b>...HTML 짧은 요약 (Korean, use <b>, <i>, • bullets, no markdown, no tables)",\n'
-    '  "analysis_md": "<b>영양 평가</b>...HTML 분석 + 개선 추천 (Korean, 4-6 lines)"\n'
+    '  "meals_by_type": {\n'
+    '    "<meal_type>": {   // meal_type ∈ "breakfast" | "lunch" | "dinner" | "snack"\n'
+    '      "items": [\n'
+    '        {"name": str, "amount": str, "kcal": int,\n'
+    '         "protein_g": float, "carbs_g": float, "fat_g": float,\n'
+    '         "source": "menu" | "image" | "caption"}\n'
+    "      ],\n"
+    '      "total_kcal": int,\n'
+    '      "protein_g": float,\n'
+    '      "carbs_g": float,\n'
+    '      "fat_g": float,\n'
+    '      "summary_md": "<b>식단</b>...HTML 짧은 요약 (Korean, <b>, <i>, • bullets, no markdown, no tables)",\n'
+    '      "analysis_md": "<b>영양 평가</b>...HTML 분석 + 개선 추천 (Korean, 4-6 lines)"\n'
+    "    },\n"
+    "    ...other meal_types if present...\n"
+    "  }\n"
     "}\n\n"
-    "Each item's source field:\n"
-    "  - 'menu': matched from menu/label with printed kcal — kcal is authoritative\n"
-    "  - 'image': identified directly from food in photo — kcal estimated\n"
+    "Each item's source:\n"
+    "  - 'menu':    matched from menu/label printed kcal — kcal authoritative\n"
+    "  - 'image':   identified directly from food photo — kcal estimated\n"
     "  - 'caption': identified from user's text only — kcal estimated\n\n"
-    "Only return an empty items list if there is genuinely no food information from EITHER the "
-    "image OR the caption. In that case: "
-    "{\"items\": [], \"total_kcal\": 0, \"summary_md\": \"\", \"analysis_md\": \"식단 정보를 찾지 못했습니다. 무엇을 드셨는지 텍스트로 알려주세요.\"}"
+    "If the message has explicit single-meal LOCK (system tells you 'lock_to_default'), put ALL "
+    "items under that single meal_type and ignore other meal labels in the caption.\n\n"
+    "If you cannot identify any food from either image or caption: {\"meals_by_type\": {}}"
 )
 
 
-async def extract_meal_from_image(image_bytes: bytes, meal_type: str, user_ctx: str = "") -> dict:
+async def extract_meal_from_image(image_bytes: bytes, default_meal_type: str, user_ctx: str = "", lock_to_default: bool = False) -> dict:
+    """Returns {meals_by_type: {<meal_type>: {...}}}.
+
+    default_meal_type: fallback meal_type when caption doesn't specify when the user ate.
+    lock_to_default: if True, force ALL items under default_meal_type (used by /breakfast etc.).
+    """
+    import logging
+    log = logging.getLogger(__name__)
     b64 = base64.b64encode(image_bytes).decode()
     c = get_client()
-    user_text = f"식사 종류: {meal_type}\n{user_ctx}\n이 식단 사진을 분석해주세요."
+    lock_note = f"lock_to_default=YES — 모든 음식을 '{default_meal_type}' 한 끼니로만 분류하세요." if lock_to_default else ""
+    user_text = (
+        f"default_meal_type: {default_meal_type}\n"
+        f"{lock_note}\n"
+        f"{user_ctx}\n\n"
+        "이 사진(과 캡션)에서 사용자가 무엇을 먹었는지 분석해주세요."
+    )
     resp = await c.chat.completions.create(
         model=VISION_MODEL,
         messages=[
@@ -423,24 +444,41 @@ async def extract_meal_from_image(image_bytes: bytes, meal_type: str, user_ctx: 
                 ],
             },
         ],
-        max_completion_tokens=900,
+        max_completion_tokens=1500,
         response_format={"type": "json_object"},
     )
-    return _safe_json(resp.choices[0].message.content or "")
+    raw = resp.choices[0].message.content or ""
+    data = _safe_json(raw)
+    if not data or not data.get("meals_by_type"):
+        log.warning(f"extract_meal_from_image returned no meals. raw={raw[:600]!r}")
+    return data
 
 
-async def extract_meal_from_text(text: str, meal_type: str, user_ctx: str = "") -> dict:
+async def extract_meal_from_text(text: str, default_meal_type: str, user_ctx: str = "", lock_to_default: bool = False) -> dict:
+    import logging
+    log = logging.getLogger(__name__)
     c = get_client()
+    lock_note = f"lock_to_default=YES — 모든 음식을 '{default_meal_type}' 한 끼니로만 분류하세요." if lock_to_default else ""
+    prompt = (
+        f"default_meal_type: {default_meal_type}\n"
+        f"{lock_note}\n"
+        f"{user_ctx}\n\n"
+        f"식단 내용:\n{text}"
+    )
     resp = await c.chat.completions.create(
         model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": MEAL_SYSTEM},
-            {"role": "user", "content": f"식사 종류: {meal_type}\n{user_ctx}\n식단 내용: {text}"},
+            {"role": "user", "content": prompt},
         ],
-        max_completion_tokens=900,
+        max_completion_tokens=1500,
         response_format={"type": "json_object"},
     )
-    return _safe_json(resp.choices[0].message.content or "")
+    raw = resp.choices[0].message.content or ""
+    data = _safe_json(raw)
+    if not data or not data.get("meals_by_type"):
+        log.warning(f"extract_meal_from_text returned no meals. raw={raw[:600]!r}")
+    return data
 
 
 def _safe_json(content: str) -> dict:

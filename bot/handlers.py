@@ -830,9 +830,10 @@ async def _process_inbody_image(
 
 async def _process_meal_image(
     update: Update, chat_id: int, user, target_user_id: int,
-    images: list[bytes], meal_type: str, caption: str, status_msg,
+    images: list[bytes], default_meal_type: str, caption: str, status_msg,
+    lock_to_default: bool = False,
 ) -> None:
-    """Analyze a meal photo (uses first image; rest ignored with a notice)."""
+    """Analyze a meal photo (uses first image). LLM decides meal_type splits."""
     await status_msg.edit_text("🍽️ 식단 분석 중...")
     weight = get_user_weight(target_user_id, chat_id)
     height = get_user_height(target_user_id, chat_id)
@@ -845,40 +846,94 @@ async def _process_meal_image(
         ctx_lines.append(f"사용자 메모: {caption}")
     user_ctx = "\n".join(ctx_lines)
 
-    data = await extract_meal_from_image(images[0], meal_type, user_ctx)
-    if not data or not data.get("items"):
-        await status_msg.edit_text("❌ 식사 사진으로 인식했지만 음식을 식별하지 못했습니다.")
+    data = await extract_meal_from_image(images[0], default_meal_type, user_ctx, lock_to_default=lock_to_default)
+    saved = await _save_meals_from_extraction(
+        update, chat_id, user, target_user_id, data, raw_label_prefix=f"[image] {caption}".strip(),
+        default_meal_type=default_meal_type,
+    )
+    if not saved:
+        await status_msg.edit_text(
+            "❌ 식사로 인식했지만 음식 정보를 추출하지 못했습니다.\n"
+            "<i>무엇을 드셨는지 텍스트로 알려주시면 다시 시도할게요. 예: '닭가슴살 200g + 현미밥'</i>",
+            parse_mode="HTML",
+        )
         return
 
-    items_md = format_meal_items_md(data.get("items", []))
-    structured_md = data.get("summary_md", "") or items_md
-    analysis_md = data.get("analysis_md", "")
-    kcal = data.get("total_kcal")
-    macros = {
-        "protein_g": data.get("protein_g"),
-        "carbs_g": data.get("carbs_g"),
-        "fat_g": data.get("fat_g"),
-    }
+    date = message_date_kst(update.message)
+    reply = _format_multi_meal_reply(saved, date, target_user_id, user.id)
+    if len(images) > 1:
+        reply += f"\n<i>(첫 번째 사진만 분석. 나머지 {len(images)-1}장은 무시.)</i>"
+    await status_msg.edit_text(reply, parse_mode="HTML")
+
+
+async def _save_meals_from_extraction(
+    update: Update, chat_id: int, user, target_user_id: int,
+    data: dict, raw_label_prefix: str, default_meal_type: str,
+) -> list:
+    """Persist all meal_type entries from the LLM result. Returns list of saved tuples
+    (meal_type, items_md, structured_md, analysis_md, kcal, macros)."""
+    meals_by_type = (data or {}).get("meals_by_type") or {}
+    # Backward-compat: if LLM returned old single-meal shape, wrap it
+    if not meals_by_type and (data or {}).get("items"):
+        meals_by_type = {default_meal_type: {
+            "items": data["items"],
+            "total_kcal": data.get("total_kcal"),
+            "protein_g": data.get("protein_g"),
+            "carbs_g": data.get("carbs_g"),
+            "fat_g": data.get("fat_g"),
+            "summary_md": data.get("summary_md", ""),
+            "analysis_md": data.get("analysis_md", ""),
+        }}
 
     date = message_date_kst(update.message)
-    raw = f"[image] {caption}".strip()
-    save_meal(chat_id, target_user_id, date, meal_type, raw, structured_md, kcal, macros, analysis_md)
+    saved = []
+    for meal_type, meal_data in meals_by_type.items():
+        if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+            continue
+        items = (meal_data or {}).get("items") or []
+        if not items:
+            continue
+        items_md = format_meal_items_md(items)
+        structured_md = meal_data.get("summary_md") or items_md
+        analysis_md = meal_data.get("analysis_md", "")
+        kcal = meal_data.get("total_kcal")
+        macros = {
+            "protein_g": meal_data.get("protein_g"),
+            "carbs_g": meal_data.get("carbs_g"),
+            "fat_g": meal_data.get("fat_g"),
+        }
+        save_meal(chat_id, target_user_id, date, meal_type, raw_label_prefix,
+                  structured_md, kcal, macros, analysis_md)
+        saved.append((meal_type, items_md, structured_md, analysis_md, kcal, macros))
+    return saved
 
-    meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
-    kcal_str = f"{int(kcal)} kcal" if kcal else "?"
-    body = [
-        f"{meal_label} ({date}) — <b>{kcal_str}</b>",
-        "",
-        items_md,
-    ]
-    if analysis_md:
-        body += ["", analysis_md]
-    body.append(format_meal_kcal_status(target_user_id, date))
-    if len(images) > 1:
-        body.append(f"\n<i>(첫 번째 사진만 분석. 나머지 {len(images)-1}장은 무시.)</i>")
-    if target_user_id != user.id:
-        body.append(f"\n(클라이언트 ID: {target_user_id} 기록으로 저장)")
-    await status_msg.edit_text("\n".join(body), parse_mode="HTML")
+
+def _format_multi_meal_reply(saved: list, date: str, target_user_id: int, sender_id: int) -> str:
+    """Combine multiple meal save results into one reply with kcal status at the end."""
+    type_label = {
+        "breakfast": "🌅 아침", "lunch": "☀️ 점심",
+        "dinner": "🌙 저녁",   "snack": "🍪 간식",
+    }
+    order = {"breakfast": 0, "lunch": 1, "dinner": 2, "snack": 3}
+    saved_sorted = sorted(saved, key=lambda s: order.get(s[0], 99))
+
+    blocks = []
+    for meal_type, items_md, structured_md, analysis_md, kcal, _macros in saved_sorted:
+        kcal_str = f"{int(kcal)} kcal" if kcal else "?"
+        section = [f"{type_label.get(meal_type, meal_type)} ({date}) — <b>{kcal_str}</b>", ""]
+        if items_md:
+            section.append(items_md)
+        if analysis_md:
+            section += ["", analysis_md]
+        blocks.append("\n".join(section))
+
+    reply = "\n\n".join(blocks)
+    if len(saved) > 1:
+        reply = f"✅ {len(saved)}개 식사 저장됨\n\n" + reply
+    reply += format_meal_kcal_status(target_user_id, date)
+    if target_user_id != sender_id:
+        reply += f"\n\n(클라이언트 ID: {target_user_id} 기록으로 저장)"
+    return reply
 
 
 async def _process_single_photo(
@@ -985,7 +1040,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
 async def _process_meal_text(
     update: Update, chat_id: int, user, target_user_id: int,
-    text: str, meal_type: str, status_msg,
+    text: str, default_meal_type: str, status_msg,
+    lock_to_default: bool = False,
 ) -> None:
     await status_msg.edit_text("🍽️ 식단 분석 중...")
     weight = get_user_weight(target_user_id, chat_id)
@@ -997,37 +1053,22 @@ async def _process_meal_text(
         ctx_lines.append(f"키: {height}cm")
     user_ctx = "\n".join(ctx_lines)
 
-    data = await extract_meal_from_text(text, meal_type, user_ctx)
-    if not data or not data.get("items"):
-        await status_msg.edit_text("❌ 식사로 인식했지만 음식 구체화에 실패했습니다.")
+    data = await extract_meal_from_text(text, default_meal_type, user_ctx, lock_to_default=lock_to_default)
+    saved = await _save_meals_from_extraction(
+        update, chat_id, user, target_user_id, data, raw_label_prefix=text,
+        default_meal_type=default_meal_type,
+    )
+    if not saved:
+        await status_msg.edit_text(
+            "❌ 식사로 인식했지만 음식 구체화에 실패했습니다.\n"
+            "<i>다시 시도하려면 음식명·분량을 명확히 적어주세요. 예: '닭가슴살 200g + 현미밥 한공기'</i>",
+            parse_mode="HTML",
+        )
         return
 
-    items_md = format_meal_items_md(data.get("items", []))
-    structured_md = data.get("summary_md", "") or items_md
-    analysis_md = data.get("analysis_md", "")
-    kcal = data.get("total_kcal")
-    macros = {
-        "protein_g": data.get("protein_g"),
-        "carbs_g": data.get("carbs_g"),
-        "fat_g": data.get("fat_g"),
-    }
-
     date = message_date_kst(update.message)
-    save_meal(chat_id, target_user_id, date, meal_type, text, structured_md, kcal, macros, analysis_md)
-
-    meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
-    kcal_str = f"{int(kcal)} kcal" if kcal else "?"
-    body = [
-        f"{meal_label} ({date}) — <b>{kcal_str}</b>",
-        "",
-        items_md,
-    ]
-    if analysis_md:
-        body += ["", analysis_md]
-    body.append(format_meal_kcal_status(target_user_id, date))
-    if target_user_id != user.id:
-        body.append(f"\n(클라이언트 ID: {target_user_id} 기록으로 저장)")
-    await status_msg.edit_text("\n".join(body), parse_mode="HTML")
+    reply = _format_multi_meal_reply(saved, date, target_user_id, user.id)
+    await status_msg.edit_text(reply, parse_mode="HTML")
 
 
 async def _process_text_workout(
@@ -1249,58 +1290,23 @@ async def _cmd_meal(update: Update, context: ContextTypes.DEFAULT_TYPE, meal_typ
     status_msg = await update.message.reply_text("🍽️ 식단 분석 중...")
 
     try:
-        weight = get_user_weight(target_user_id, chat_id)
-        height = get_user_height(target_user_id, chat_id)
-        ctx_lines = []
-        if weight:
-            ctx_lines.append(f"사용자 체중: {weight}kg")
-        if height:
-            ctx_lines.append(f"키: {height}cm")
-        user_ctx = "\n".join(ctx_lines)
-
+        # Slash commands lock the meal_type — user explicitly chose /breakfast etc.
         if photo:
             file = await context.bot.get_file(photo.file_id)
             image_bytes = bytes(await file.download_as_bytearray())
-            data = await extract_meal_from_image(image_bytes, meal_type, user_ctx)
-            raw = f"[image] {text_input}".strip()
+            await _process_meal_image(
+                update, chat_id, user, target_user_id,
+                [image_bytes], meal_type, text_input, status_msg,
+                lock_to_default=True,
+            )
         else:
-            data = await extract_meal_from_text(text_input, meal_type, user_ctx)
-            raw = text_input
-
-        if not data or not data.get("items"):
-            await status_msg.edit_text("❌ 식단을 인식하지 못했습니다.")
-            return
-
-        items_md = format_meal_items_md(data.get("items", []))
-        structured_md = data.get("summary_md", "") or items_md
-        analysis_md = data.get("analysis_md", "")
-        kcal = data.get("total_kcal")
-        macros = {
-            "protein_g": data.get("protein_g"),
-            "carbs_g": data.get("carbs_g"),
-            "fat_g": data.get("fat_g"),
-        }
-
-        date = message_date_kst(update.message)
-        save_meal(
-            chat_id, target_user_id, date, meal_type, raw,
-            structured_md, kcal, macros, analysis_md,
-        )
-
-        meal_label = {"breakfast": "🌅 아침", "lunch": "☀️ 점심", "dinner": "🌙 저녁", "snack": "🍪 간식"}[meal_type]
-        kcal_str = f"{int(kcal)} kcal" if kcal else "?"
-        body = [
-            f"{meal_label} ({date}) — <b>{kcal_str}</b>",
-            "",
-            items_md,
-        ]
-        if analysis_md:
-            body += ["", analysis_md]
-        body.append(format_meal_kcal_status(target_user_id, date))
-        suffix = f"\n\n(클라이언트 ID: {target_user_id} 기록으로 저장)" if target_user_id != user.id else ""
-        await status_msg.edit_text("\n".join(body) + suffix, parse_mode="HTML")
+            await _process_meal_text(
+                update, chat_id, user, target_user_id,
+                text_input, meal_type, status_msg,
+                lock_to_default=True,
+            )
     except Exception as e:
-        logger.error(f"Meal analysis error: {e}")
+        logger.error(f"Meal command error: {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
 
 
