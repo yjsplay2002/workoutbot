@@ -63,6 +63,30 @@
   </div>
   <div style="font-size:.75em;color:var(--text2);margin-top:4px;text-align:right">{{ pct }}%</div>
 
+  {# 오늘의 적자 + 오늘 운동 소비 #}
+  {% set ex_kcal = today_exercise_kcal|int %}
+  {% if kcal_detail.tdee %}
+  {% set today_deficit = (kcal_detail.tdee|int) + ex_kcal - today_kcal %}
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">오늘의 칼로리 {% if today_deficit >= 0 %}적자{% else %}잉여{% endif %}</div>
+      <div style="font-size:1.4em;font-weight:700;{% if today_deficit >= 0 %}color:var(--green){% else %}color:var(--red){% endif %}">{{ today_deficit }} <span style="font-size:.55em">kcal</span></div>
+      <div style="font-size:.68em;color:var(--text2);margin-top:2px">TDEE {{ kcal_detail.tdee|int }}{% if ex_kcal %} + 운동 {{ ex_kcal }}{% endif %} − 섭취 {{ today_kcal }}</div>
+    </div>
+    {% if ex_kcal %}
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">오늘 운동 소비 🔥</div>
+      <div style="font-size:1.4em;font-weight:700;color:#a29bfe">{{ ex_kcal }} <span style="font-size:.55em">kcal</span></div>
+    </div>
+    {% endif %}
+  </div>
+  {% elif ex_kcal %}
+  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+    <div style="font-size:.78em;color:var(--text2)">오늘 운동 소비 🔥</div>
+    <div style="font-size:1.4em;font-weight:700;color:#a29bfe">{{ ex_kcal }} <span style="font-size:.55em">kcal</span></div>
+  </div>
+  {% endif %}
+
   {% if kcal_detail.macros %}
   {% set m = kcal_detail.macros %}
   <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">

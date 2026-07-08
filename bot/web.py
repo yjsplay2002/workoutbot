@@ -298,6 +298,12 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         deficit_progress = compute_deficit_progress(user_id, today_str)
         today_meals_dash = get_meals_for_date(user_id, today_str)
         today_meal_kcal = sum((m.get("estimated_kcal") or 0) for m in today_meals_dash)
+        _tconn = get_conn()
+        today_exercise_kcal = _tconn.execute(
+            "SELECT SUM(estimated_kcal) AS v FROM records WHERE user_id=? AND date=? AND estimated_kcal IS NOT NULL",
+            (user_id, today_str),
+        ).fetchone()["v"] or 0
+        _tconn.close()
         today_p = sum((m.get("protein_g") or 0) for m in today_meals_dash)
         today_c = sum((m.get("carbs_g") or 0) for m in today_meals_dash)
         today_f = sum((m.get("fat_g") or 0) for m in today_meals_dash)
@@ -328,6 +334,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         today_plan = None
         kcal_detail = None
         deficit_progress = None
+        today_exercise_kcal = 0
         today_meal_kcal = 0
         today_p = today_c = today_f = 0
 
@@ -380,6 +387,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         "today_str": today_str,
         "kcal_detail": kcal_detail,
         "deficit_progress": deficit_progress,
+        "today_exercise_kcal": today_exercise_kcal,
         "today_meal_kcal": today_meal_kcal,
         "today_p": today_p,
         "today_c": today_c,
