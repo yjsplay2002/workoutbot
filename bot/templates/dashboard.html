@@ -101,6 +101,105 @@
 </div>
 {% endif %}
 
+{# 칼로리 적자 목표 달성 현황 #}
+{% if deficit_progress and deficit_progress.available %}
+{% set dp = deficit_progress %}
+{% set dir_ko = '적자' if dp.direction == 'deficit' else '잉여' %}
+<h2>📉 목표 칼로리 {{ dir_ko }} 달성 현황</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
+  <div style="font-size:.85em;color:var(--text2);margin-bottom:14px">
+    {{ dp.label }} {{ dp.current_value }}{{ dp.unit }} → {{ dp.target_value }}{{ dp.unit }}
+    (D-{{ dp.days_left }} · {{ dp.target_date }})
+  </div>
+
+  {# 요약 지표 #}
+  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:0">
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">필요 총 {{ dir_ko }}</div>
+      <div style="font-size:1.4em;font-weight:700;color:var(--accent2)">{{ dp.total_needed }} <span style="font-size:.55em">kcal</span></div>
+    </div>
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">하루 필요 {{ dir_ko }}</div>
+      <div style="font-size:1.4em;font-weight:700;color:var(--accent2)">{{ dp.daily_target }} <span style="font-size:.55em">kcal/일</span></div>
+    </div>
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">운동 소비(누적)</div>
+      <div style="font-size:1.4em;font-weight:700;color:#a29bfe">{{ dp.exercise_total }} <span style="font-size:.55em">kcal</span></div>
+    </div>
+    <div>
+      <div style="font-size:.8em;color:var(--text2)">경과 / 전체</div>
+      <div style="font-size:1.4em;font-weight:700">{{ dp.days_elapsed }}<span style="font-size:.55em"> / {{ dp.total_days }}일</span></div>
+    </div>
+  </div>
+
+  {# 목표 대비 실제 누적 #}
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">지금까지 목표({{ dir_ko }} 누적)</div>
+      <div style="font-size:1.3em;font-weight:700">{{ dp.target_cumulative }} <span style="font-size:.55em">kcal</span></div>
+    </div>
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">실제 달성({{ dir_ko }} 누적)</div>
+      <div style="font-size:1.3em;font-weight:700;{% if dp.achievement_pct is not none and dp.achievement_pct >= 100 %}color:var(--green){% elif dp.achievement_pct is not none and dp.achievement_pct < 80 %}color:var(--red){% endif %}">{{ dp.actual_cumulative }} <span style="font-size:.55em">kcal</span></div>
+    </div>
+  </div>
+
+  {# 달성률 바 #}
+  {% if dp.achievement_pct is not none %}
+  {% set apct = dp.achievement_pct %}
+  <div style="background:var(--card2);border-radius:4px;height:10px;margin-top:14px;overflow:hidden">
+    <div style="height:100%;width:{{ apct if apct <= 100 else 100 }}%;background:{% if apct >= 100 %}var(--green){% elif apct < 80 %}var(--red){% else %}linear-gradient(90deg,var(--accent),var(--accent2)){% endif %};transition:width .3s"></div>
+  </div>
+  <div style="font-size:.8em;color:var(--text2);margin-top:4px;text-align:right">달성률 {{ apct }}% · 측정일 {{ dp.measured_days }}일</div>
+  {% else %}
+  <div style="font-size:.8em;color:var(--text2);margin-top:12px">아직 측정된 기간이 없습니다.</div>
+  {% endif %}
+
+  {# 일자별 표 #}
+  {% if dp.rows %}
+  <details style="margin-top:16px" open>
+    <summary style="cursor:pointer;color:var(--text2);font-size:.9em">📋 일자별 {{ dir_ko }} 내역 (최근 {{ dp.rows|length }}일)</summary>
+    <div style="overflow-x:auto;margin-top:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:.85em;min-width:520px">
+        <thead>
+          <tr style="color:var(--text2);text-align:right">
+            <th style="text-align:left;padding:6px 8px">날짜</th>
+            <th style="padding:6px 8px">섭취</th>
+            <th style="padding:6px 8px">운동소비</th>
+            <th style="padding:6px 8px">TDEE</th>
+            <th style="padding:6px 8px">당일 {{ dir_ko }}</th>
+            <th style="padding:6px 8px">목표 {{ dir_ko }}</th>
+            <th style="padding:6px 8px">달성</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in dp.rows %}
+          <tr style="border-top:1px solid var(--border);text-align:right">
+            <td style="text-align:left;padding:6px 8px">{{ r.date[5:] }}</td>
+            <td style="padding:6px 8px">{{ r.intake }}</td>
+            <td style="padding:6px 8px;color:#a29bfe">{{ r.exercise }}</td>
+            <td style="padding:6px 8px;color:var(--text2)">{{ r.tdee }}</td>
+            <td style="padding:6px 8px;font-weight:700;{% if r.met %}color:var(--green){% else %}color:var(--red){% endif %}">{{ r.day_deficit }}</td>
+            <td style="padding:6px 8px;color:var(--text2)">{{ r.target_daily }}</td>
+            <td style="padding:6px 8px">{% if r.met %}✅{% else %}⚠️{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:.75em;color:var(--text2);margin-top:8px;line-height:1.6">
+      당일 {{ dir_ko }} = TDEE + 운동소비 − 섭취. 식단이 기록된 날만 집계됩니다.
+    </div>
+  </details>
+  {% endif %}
+</div>
+{% elif deficit_progress and deficit_progress.reason %}
+<h2>📉 목표 칼로리 적자 달성 현황</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px;color:var(--text2);font-size:.9em">
+  {{ deficit_progress.reason }}
+</div>
+{% endif %}
+
 {# 최근 인바디 #}
 {% if latest_inbody %}
 <h2>📏 최근 인바디 <a href="/inbody" style="font-size:.7em;color:var(--text2);font-weight:400">전체 보기</a></h2>

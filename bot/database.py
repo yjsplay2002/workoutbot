@@ -1165,6 +1165,192 @@ def estimate_daily_target_kcal(user_id: int, date: str) -> tuple:
     return d.get("target_kcal"), d.get("source", "none")
 
 
+def compute_deficit_progress(user_id: int, today: str) -> dict:
+    """Track cumulative calorie-deficit progress toward the primary goal.
+
+    Concept:
+      - Reaching a weight/fat goal requires a total energy deficit
+        (delta_kg × kcal_per_kg). Spread over the goal window, that is a
+        required daily deficit (total_deficit / total_days).
+      - "Should-have-achieved by now" = daily_target × days_elapsed.
+      - "Actually achieved" = Σ over logged days of
+            (TDEE + exercise_kcal − intake_kcal).
+        Only days that have at least one logged meal count as measured,
+        since intake is unknown otherwise.
+
+    Returns dict with keys:
+      available (bool), reason (str when unavailable),
+      metric, direction ('deficit'|'surplus'), unit,
+      current_value, target_value, tdee,
+      total_needed, daily_target, total_days, days_elapsed, days_left,
+      target_cumulative, actual_cumulative, achievement_pct,
+      exercise_total, measured_days, rows (recent per-day breakdown).
+    """
+    from datetime import date as _date, timedelta
+
+    result = {"available": False, "reason": "", "rows": []}
+
+    primary = get_primary_goal(user_id)
+    if not primary:
+        result["reason"] = "활성 주 목표가 없습니다. /goal로 목표를 추가하세요."
+        return result
+
+    latest = get_latest_inbody(user_id)
+    bmr = (latest or {}).get("bmr_kcal") if latest else None
+    if not bmr:
+        result["reason"] = "BMR 정보가 없어 계산할 수 없습니다. /inbody로 인바디를 등록하세요."
+        return result
+    bmr = float(bmr)
+    tdee = bmr * 1.45
+
+    metric = primary["metric"]
+    target_val = float(primary["target_value"])
+
+    # Current value — latest InBody, fallback to goal start_value
+    current_val = latest.get(metric) if latest else None
+    if current_val is None and metric == "weight":
+        current_val = latest.get("weight_kg") if latest else None
+    if current_val is None:
+        current_val = primary.get("start_value")
+    if current_val is None:
+        result["reason"] = "현재 수치를 알 수 없습니다. 최신 인바디를 등록하세요."
+        return result
+    current_val = float(current_val)
+
+    # kg-change to achieve + kcal/kg coefficient (mirror compute_target_kcal_detailed)
+    KCAL_PER_KG_FAT = 7700.0
+    KCAL_PER_KG_MUSCLE = 5500.0
+    if metric == "weight":
+        delta_kg = target_val - current_val
+        kcal_per_kg = KCAL_PER_KG_FAT
+    elif metric == "body_fat_pct":
+        cw = (latest or {}).get("weight_kg")
+        if not cw:
+            result["reason"] = "체지방률 목표는 체중 정보가 필요합니다."
+            return result
+        cw = float(cw)
+        delta_kg = (cw * target_val / 100.0) - (cw * current_val / 100.0)
+        kcal_per_kg = KCAL_PER_KG_FAT
+    elif metric == "body_fat_kg":
+        delta_kg = target_val - current_val
+        kcal_per_kg = KCAL_PER_KG_FAT
+    elif metric == "skeletal_muscle_kg":
+        delta_kg = target_val - current_val
+        kcal_per_kg = KCAL_PER_KG_MUSCLE
+    else:
+        result["reason"] = "이 지표는 칼로리 적자 추적을 지원하지 않습니다."
+        return result
+
+    total_needed = abs(delta_kg) * kcal_per_kg  # positive magnitude
+    direction = "surplus" if delta_kg > 0 else "deficit"
+
+    # Goal window: created_at → target_date
+    try:
+        start_dt = datetime.fromisoformat(primary["created_at"]).date()
+    except Exception:
+        start_dt = None
+    try:
+        target_dt = datetime.strptime(primary["target_date"], "%Y-%m-%d").date()
+    except Exception:
+        target_dt = None
+    try:
+        today_dt = datetime.strptime(today, "%Y-%m-%d").date()
+    except Exception:
+        today_dt = _date.today()
+
+    if not start_dt or not target_dt:
+        result["reason"] = "목표 기간 정보가 올바르지 않습니다."
+        return result
+
+    total_days = max(1, (target_dt - start_dt).days)
+    days_elapsed = max(0, min(total_days, (today_dt - start_dt).days))
+    days_left = max(0, (target_dt - today_dt).days)
+    daily_target = total_needed / total_days
+
+    # Signed daily contribution: for a deficit goal, positive deficit helps;
+    # for a surplus goal, positive surplus helps.
+    sign = 1.0 if direction == "deficit" else -1.0
+
+    lbl, unit = GOAL_METRICS.get(metric, (metric, ""))
+
+    # Aggregate intake + exercise per day over [start, today]
+    conn = get_conn()
+    start_s = start_dt.isoformat()
+    today_s = today_dt.isoformat()
+    meal_rows = conn.execute(
+        """SELECT date, SUM(COALESCE(estimated_kcal,0)) AS kcal, COUNT(*) AS n
+           FROM meals WHERE user_id=? AND date>=? AND date<=? GROUP BY date""",
+        (user_id, start_s, today_s),
+    ).fetchall()
+    ex_rows = conn.execute(
+        """SELECT date, SUM(COALESCE(estimated_kcal,0)) AS kcal
+           FROM records WHERE user_id=? AND date>=? AND date<=? GROUP BY date""",
+        (user_id, start_s, today_s),
+    ).fetchall()
+    conn.close()
+
+    intake_by_day = {r["date"]: (r["kcal"] or 0.0, r["n"]) for r in meal_rows}
+    exercise_by_day = {r["date"]: (r["kcal"] or 0.0) for r in ex_rows}
+
+    exercise_total = sum(exercise_by_day.values())
+    actual_cumulative = 0.0
+    measured_days = 0
+    rows = []
+    # Iterate each logged-meal day (intake known); ascending
+    for i in range(days_elapsed + 1):
+        d = start_dt + timedelta(days=i)
+        ds = d.isoformat()
+        if ds not in intake_by_day:
+            continue
+        intake, _n = intake_by_day[ds]
+        exercise = exercise_by_day.get(ds, 0.0)
+        day_deficit = tdee + exercise - intake  # positive = ate below expenditure
+        signed = day_deficit * sign
+        actual_cumulative += signed
+        measured_days += 1
+        rows.append({
+            "date": ds,
+            "intake": round(intake),
+            "exercise": round(exercise),
+            "tdee": round(tdee),
+            "day_deficit": round(signed),
+            "target_daily": round(daily_target),
+            "met": signed >= daily_target,
+        })
+
+    rows = rows[-14:]  # recent 14 measured days
+    target_cumulative = daily_target * days_elapsed
+    achievement_pct = (
+        round(actual_cumulative / target_cumulative * 100, 1)
+        if target_cumulative > 0 else None
+    )
+
+    result.update({
+        "available": True,
+        "metric": metric,
+        "label": lbl,
+        "unit": unit,
+        "direction": direction,
+        "current_value": current_val,
+        "target_value": target_val,
+        "delta_kg": round(delta_kg, 2),
+        "tdee": round(tdee),
+        "total_needed": round(total_needed),
+        "daily_target": round(daily_target),
+        "total_days": total_days,
+        "days_elapsed": days_elapsed,
+        "days_left": days_left,
+        "target_cumulative": round(target_cumulative),
+        "actual_cumulative": round(actual_cumulative),
+        "achievement_pct": achievement_pct,
+        "exercise_total": round(exercise_total),
+        "measured_days": measured_days,
+        "target_date": primary["target_date"],
+        "rows": rows,
+    })
+    return result
+
+
 def get_active_users_recent(days: int = 7) -> list[dict]:
     """Users with any workout/meal/inbody activity in the last N days.
     Returns [{user_id, chat_id}] — uses latest activity's chat_id per user."""
