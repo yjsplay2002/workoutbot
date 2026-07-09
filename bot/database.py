@@ -1430,6 +1430,14 @@ def get_group_scoreboard(chat_id: int, date: str) -> dict:
         ).fetchall()
         log_dates = {r["date"] for r in log_rows}
         streak = _consecutive_streak(log_dates, today_dt)
+        last_log = max(log_dates) if log_dates else None
+        if last_log:
+            try:
+                days_silent = (today_dt - datetime.strptime(last_log, "%Y-%m-%d").date()).days
+            except Exception:
+                days_silent = None
+        else:
+            days_silent = None
 
         # target kcal + goal progress (pure DB, no LLM)
         detail = compute_target_kcal_detailed(uid, date)
@@ -1463,6 +1471,8 @@ def get_group_scoreboard(chat_id: int, date: str) -> dict:
             "streak": streak,
             "goal_pct": goal_pct,
             "logged_today": trained or meal_logged,
+            "last_log": last_log,
+            "days_silent": days_silent,
         })
     conn.close()
 

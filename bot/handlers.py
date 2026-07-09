@@ -1884,8 +1884,36 @@ async def daily_scoreboard_job(context: ContextTypes.DEFAULT_TYPE) -> None:
                 continue
             text = _fmt_scoreboard(board)
             await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
+            await _alert_trainers_silent_clients(context, chat_id, board)
         except Exception as e:
             logger.error(f"Scoreboard failed for chat {chat_id}: {e}")
+
+
+async def _alert_trainers_silent_clients(context, chat_id: int, board: dict, threshold: int = 3) -> None:
+    """DM each trainer of the group a list of clients who have gone silent
+    (no workout/meal log for `threshold`+ days) so quiet drop-offs get a poke."""
+    from bot.database import get_group_members
+    silent = [
+        r for r in board["rows"]
+        if r["days_silent"] is None or r["days_silent"] >= threshold
+    ]
+    if not silent:
+        return
+    lines = [f"⚠️ <b>이탈 주의 회원</b> ({board['date']})", ""]
+    for r in silent:
+        if r["days_silent"] is None:
+            lines.append(f"• {r['name']} — 기록 없음")
+        else:
+            lines.append(f"• {r['name']} — {r['days_silent']}일째 미기록 (마지막 {r['last_log']})")
+    lines.append("\n먼저 연락해 동기부여를 해보세요. 💪")
+    text = "\n".join(lines)
+    for m in get_group_members(chat_id):
+        if not m.get("is_trainer"):
+            continue
+        try:
+            await context.bot.send_message(chat_id=m["user_id"], text=text, parse_mode="HTML")
+        except Exception as e:
+            logger.error(f"Trainer alert DM failed for {m['user_id']}: {e}")
 
 
 async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
