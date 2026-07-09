@@ -40,6 +40,11 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.INFO,
 )
+# httpx logs each request URL at INFO — the Telegram getUpdates URL embeds the
+# bot token, leaking it into server logs. Silence httpx to WARNING to keep the
+# token out of the logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
 logger = logging.getLogger(__name__)
 
 
