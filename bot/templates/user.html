@@ -9,6 +9,30 @@
   {% if target_user.weight_kg %}<div class="stat-card"><div class="label">체중</div><div class="value">{{ target_user.weight_kg }} kg</div></div>{% endif %}
 </div>
 
+{% if deficit_progress and deficit_progress.available %}
+{% set dp = deficit_progress %}
+{% set dir_ko = '적자' if dp.direction == 'deficit' else '잉여' %}
+<h2>📉 목표 {{ dir_ko }} 달성</h2>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:20px">
+  <div style="color:var(--text2);font-size:.9em;margin-bottom:12px">
+    {{ dp.label }} {{ dp.current_value }}{{ dp.unit }} → {{ dp.target_value }}{{ dp.unit }} (D-{{ dp.days_left }} · {{ dp.target_date }})
+  </div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:12px">
+    <div><div style="font-size:.78em;color:var(--text2)">필요 총 {{ dir_ko }}</div><div style="font-size:1.3em;font-weight:700">{{ dp.total_needed }}<span style="font-size:.55em"> kcal</span></div></div>
+    <div><div style="font-size:.78em;color:var(--text2)">하루 필요</div><div style="font-size:1.3em;font-weight:700">{{ dp.daily_target }}<span style="font-size:.55em"> kcal</span></div></div>
+    <div><div style="font-size:.78em;color:var(--text2)">실제 달성</div><div style="font-size:1.3em;font-weight:700">{{ dp.actual_cumulative }}<span style="font-size:.55em"> kcal</span></div></div>
+    <div><div style="font-size:.78em;color:var(--text2)">운동 소비</div><div style="font-size:1.3em;font-weight:700;color:#a29bfe">{{ dp.exercise_total }}<span style="font-size:.55em"> kcal</span></div></div>
+  </div>
+  {% if dp.achievement_pct is not none %}
+  {% set apct = dp.achievement_pct %}
+  <div style="background:var(--card2);border-radius:4px;height:9px;margin-top:14px;overflow:hidden">
+    <div style="height:100%;width:{{ apct if apct <= 100 else 100 }}%;background:{% if apct >= 100 %}var(--green){% elif apct < 80 %}var(--red){% else %}linear-gradient(90deg,var(--accent),var(--accent2)){% endif %}"></div>
+  </div>
+  <div style="font-size:.8em;color:var(--text2);margin-top:4px;text-align:right">달성률 {{ apct }}% · 측정 {{ dp.measured_days }}일</div>
+  {% endif %}
+</div>
+{% endif %}
+
 {% if weekly %}
 <h2>📈 주간 칼로리 추이</h2>
 <div class="bar-chart">

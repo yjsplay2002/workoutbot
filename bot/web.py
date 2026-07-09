@@ -243,6 +243,10 @@ def _build_calendar_data(records: list[dict], year: int, month: int) -> dict:
 
 @app.get("/", response_class=HTMLResponse)
 async def dashboard(request: Request, year: Optional[int] = None, month: Optional[int] = None, user: dict = Depends(require_user)):
+    # Trainers land on their command center — the dashboard's primary surface.
+    if user.get("is_trainer") and user.get("trainer_groups"):
+        return RedirectResponse("/trainer", status_code=302)
+
     conn = get_conn()
     user_id = user["user_id"]
 
@@ -499,6 +503,11 @@ async def user_page(request: Request, target_user_id: int, user: dict = Depends(
     ).fetchall()]
     weekly.reverse()
     conn.close()
+
+    # Goal deficit progress + goal card for this member
+    today_str = date.today().strftime("%Y-%m-%d")
+    deficit_progress = compute_deficit_progress(target_user_id, today_str)
+    latest_inbody = get_latest_inbody(target_user_id)
     return templates.TemplateResponse(request, "user.html", {
         "request": request,
         "user": user,
@@ -506,6 +515,8 @@ async def user_page(request: Request, target_user_id: int, user: dict = Depends(
         "records": records,
         "stats": dict(stats) if stats else {"cnt": 0, "avg_kcal": 0, "total_kcal": 0},
         "weekly": weekly,
+        "deficit_progress": deficit_progress,
+        "latest_inbody": latest_inbody,
     })
 
 
