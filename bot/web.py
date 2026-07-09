@@ -37,6 +37,7 @@ from bot.database import (
     get_records_without_category,
     get_recent_meals,
     compute_deficit_progress,
+    get_group_scoreboard,
     get_user_weight,
     get_trainer_groups,
     get_user_groups,
@@ -515,7 +516,19 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
 
     conn = get_conn()
     today = date.today()
+    today_str = today.strftime("%Y-%m-%d")
     this_month = today.strftime("%Y-%m")
+
+    # Today's compliance from the same engine that powers the 21:00 scoreboard —
+    # keyed by user_id so each client card shows one consistent set of numbers.
+    compliance = {}
+    for chat_id in user["trainer_groups"]:
+        try:
+            board = get_group_scoreboard(chat_id, today_str)
+            for r in board["rows"]:
+                compliance[r["user_id"]] = r
+        except Exception:
+            pass
 
     clients = []
     seen_user_ids = set()
@@ -567,6 +580,7 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
             ).fetchall()]
             weekly.reverse()
 
+            comp = compliance.get(uid, {})
             clients.append({
                 "user_id": uid,
                 "name": m.get("name") or f"사용자 {uid}",
@@ -579,32 +593,44 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
                 "top_category": cat_row["category"] if cat_row else None,
                 "recent": recent,
                 "weekly": weekly,
+                # Today's compliance (from scoreboard engine)
+                "trained_today": comp.get("trained", False),
+                "meal_logged_today": comp.get("meal_logged", False),
+                "kcal_pct": comp.get("kcal_pct"),
+                "streak": comp.get("streak", 0),
+                "goal_pct": comp.get("goal_pct"),
+                "days_silent": comp.get("days_silent"),
             })
 
-    # Compute days since last session + activity dot
+    # Risk status from days_silent (today-relative, actionable):
+    #   green = logged today, yellow = 1-2 days quiet, red = 3+ days or never.
     for c in clients:
-        if c["last_date"]:
-            try:
-                delta = (today - datetime.strptime(c["last_date"], "%Y-%m-%d").date()).days
-                c["days_since"] = delta
-                c["activity"] = "green" if delta <= 7 else ("yellow" if delta <= 30 else "red")
-            except Exception:
-                c["days_since"] = None
-                c["activity"] = "red"
-        else:
-            c["days_since"] = None
+        ds = c["days_silent"]
+        if ds is None:
             c["activity"] = "red"
-
-        # weekly max for sparkline
+            c["days_since"] = None
+        else:
+            c["days_since"] = ds
+            c["activity"] = "green" if ds == 0 else ("yellow" if ds <= 2 else "red")
+        c["at_risk"] = (ds is None) or (ds >= 3)
         c["weekly_max"] = max((w["cnt"] for w in c["weekly"]), default=1)
 
-    # Sort by last_date desc (most active first)
-    clients.sort(key=lambda c: c["last_date"] or "0000-00-00", reverse=True)
+    # Sort by risk first (at-risk on top so trainers act), then longest silence,
+    # then streak so strong clients bubble up within the healthy group.
+    rank = {"red": 0, "yellow": 1, "green": 2}
+    clients.sort(key=lambda c: (
+        rank.get(c["activity"], 3),
+        -(c["days_silent"] if c["days_silent"] is not None else 9999),
+        -c["streak"],
+    ))
 
-    # Summary totals
+    # Summary
     total_sessions = sum(c["total_sessions"] for c in clients)
     total_monthly = sum(c["monthly_sessions"] for c in clients)
     total_kcal = sum(c["total_kcal"] for c in clients)
+    active_today = sum(1 for c in clients if c["days_silent"] == 0)
+    at_risk_clients = [c for c in clients if c["at_risk"]]
+    avg_streak = round(sum(c["streak"] for c in clients) / len(clients), 1) if clients else 0
 
     conn.close()
 
@@ -615,6 +641,9 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
         "total_sessions": total_sessions,
         "total_monthly": total_monthly,
         "total_kcal": total_kcal,
+        "active_today": active_today,
+        "at_risk_clients": at_risk_clients,
+        "avg_streak": avg_streak,
         "this_month": today.strftime("%Y년 %m월"),
         "get_category_color": get_category_color,
     })

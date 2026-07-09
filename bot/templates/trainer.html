@@ -246,18 +246,31 @@
     <div class="lbl">👤 전체 회원</div>
   </div>
   <div class="summary-card">
-    <div class="val">{{ total_monthly }}</div>
-    <div class="lbl">📅 이번 달 세션</div>
+    <div class="val" style="color:#22c55e">{{ active_today }}</div>
+    <div class="lbl">✅ 오늘 활동</div>
   </div>
   <div class="summary-card">
-    <div class="val">{{ total_sessions }}</div>
-    <div class="lbl">🏋️ 누적 세션</div>
+    <div class="val" style="color:{{ '#ef4444' if at_risk_clients else 'var(--text2)' }}">{{ at_risk_clients|length }}</div>
+    <div class="lbl">⚠️ 이탈 주의</div>
   </div>
   <div class="summary-card">
-    <div class="val">{{ "{:,.0f}".format(total_kcal) }}</div>
-    <div class="lbl">🔥 누적 kcal</div>
+    <div class="val">{{ avg_streak }}</div>
+    <div class="lbl">🔥 평균 연속일</div>
   </div>
 </div>
+
+{% if at_risk_clients %}
+<div style="background:rgba(239,68,68,.1);border:1px solid #ef4444;border-radius:12px;padding:16px 18px;margin-bottom:24px">
+  <div style="font-weight:700;color:#ef4444;margin-bottom:8px">⚠️ 이탈 주의 회원 ({{ at_risk_clients|length }}명) — 먼저 연락하세요</div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    {% for c in at_risk_clients %}
+    <a href="/user/{{ c.user_id }}" style="text-decoration:none;background:var(--card);border:1px solid var(--border);border-radius:20px;padding:5px 14px;font-size:.85em;color:var(--text)">
+      {{ c.name }} · {% if c.days_silent is none %}기록 없음{% else %}{{ c.days_silent }}일째{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
 
 {% if clients %}
 
@@ -271,24 +284,46 @@
   {% for c in clients %}
   {% set name_initial = (c.name or '?')[0]|upper %}
 
-  <div class="client-card" data-name="{{ c.name|lower }}">
+  {% set border = {'red':'#ef4444','yellow':'#eab308','green':'#22c55e'}[c.activity] %}
+  <div class="client-card" data-name="{{ c.name|lower }}" style="border-left:4px solid {{ border }}">
     <div class="client-card-header">
       <div class="client-avatar">{{ name_initial }}</div>
       <div style="flex:1">
         <a href="/user/{{ c.user_id }}" class="client-name">{{ c.name or ('사용자 ' ~ c.user_id) }}</a>
         <div class="client-last-seen" style="display:flex;align-items:center;gap:6px">
           <span class="active-dot {{ c.activity }}"></span>
-          {% if c.last_date %}
-            마지막 운동: {{ c.last_date }}
-            {% if c.days_since == 0 %}(오늘)
-            {% elif c.days_since == 1 %}(어제)
-            {% elif c.days_since %}({{ c.days_since }}일 전){% endif %}
+          {% if c.days_silent == 0 %}오늘 활동 중
+          {% elif c.days_silent is not none %}{{ c.days_silent }}일째 미기록
           {% else %}기록 없음{% endif %}
         </div>
       </div>
       {% if c.top_category %}
       <span class="cat-badge" style="background:{{ get_category_color(c.top_category) }}">{{ c.top_category }}</span>
       {% endif %}
+    </div>
+
+    <!-- Today compliance -->
+    <div style="display:flex;align-items:center;justify-content:space-around;padding:12px 8px;border-bottom:1px solid var(--border);font-size:.85em">
+      <div style="text-align:center">
+        <div style="font-size:1.1em">{{ '✅' if c.trained_today else '❌' }}</div>
+        <div style="color:var(--text2);font-size:.85em">운동</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.1em">{{ '✅' if c.meal_logged_today else '❌' }}</div>
+        <div style="color:var(--text2);font-size:.85em">식단</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.1em;font-weight:700;color:{{ '#f59e0b' if c.streak else 'var(--text2)' }}">🔥{{ c.streak }}</div>
+        <div style="color:var(--text2);font-size:.85em">연속일</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.1em;font-weight:700">{{ (c.kcal_pct ~ '%') if c.kcal_pct is not none else '—' }}</div>
+        <div style="color:var(--text2);font-size:.85em">칼로리</div>
+      </div>
+      <div style="text-align:center">
+        <div style="font-size:1.1em;font-weight:700;color:var(--accent)">{{ (c.goal_pct ~ '%') if c.goal_pct is not none else '—' }}</div>
+        <div style="color:var(--text2);font-size:.85em">목표</div>
+      </div>
     </div>
 
     <div class="client-stats">
