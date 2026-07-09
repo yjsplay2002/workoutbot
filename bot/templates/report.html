@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ name }} 주간 리포트{% endblock %}
+{% block content %}
+{% set dp = deficit_progress %}
+<style>
+.report-card{max-width:480px;margin:12px auto;background:linear-gradient(160deg,var(--card),var(--card2));border:1px solid var(--border);border-radius:18px;padding:26px 24px;box-shadow:0 8px 30px rgba(0,0,0,.18)}
+.report-card h1{margin:0;font-size:1.5em}
+.report-sub{color:var(--text2);font-size:.85em;margin-top:2px}
+.report-metrics{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:20px}
+.rm{background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px}
+.rm .v{font-size:1.6em;font-weight:800;line-height:1.1}
+.rm .l{font-size:.78em;color:var(--text2);margin-top:3px}
+.report-foot{margin-top:22px;padding-top:14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;font-size:.8em;color:var(--text2)}
+.badge{background:var(--accent);color:#fff;padding:3px 10px;border-radius:20px;font-weight:700;font-size:.9em}
+.copy-btn{display:block;max-width:480px;margin:0 auto 24px;text-align:center;padding:10px;background:var(--card);border:1px solid var(--border);border-radius:10px;color:var(--text2);cursor:pointer;font-size:.85em}
+</style>
+
+<div class="report-card" id="reportCard">
+  <div style="display:flex;align-items:center;justify-content:space-between">
+    <div>
+      <h1>💪 {{ name }}</h1>
+      <div class="report-sub">주간 리포트 · {{ period }}</div>
+    </div>
+    <div style="text-align:center">
+      <div style="font-size:2em;font-weight:800;color:{% if adherence_pct >= 70 %}var(--green){% elif adherence_pct < 40 %}var(--red){% else %}var(--accent){% endif %}">{{ adherence_pct }}%</div>
+      <div style="font-size:.7em;color:var(--text2)">기록 순응도</div>
+    </div>
+  </div>
+
+  <div class="report-metrics">
+    <div class="rm"><div class="v">{{ workout_count }}<span style="font-size:.5em"> 회</span></div><div class="l">🏋️ 운동 세션</div></div>
+    <div class="rm"><div class="v">{{ log_days }}<span style="font-size:.5em"> / 7일</span></div><div class="l">📅 기록한 날</div></div>
+    {% if avg_kcal %}<div class="rm"><div class="v">{{ avg_kcal }}<span style="font-size:.5em"> kcal</span></div><div class="l">🍽️ 평균 섭취</div></div>{% endif %}
+    {% if avg_protein %}<div class="rm"><div class="v">{{ avg_protein }}<span style="font-size:.5em"> g</span></div><div class="l">🥩 평균 단백질</div></div>{% endif %}
+    <div class="rm"><div class="v" style="color:#a29bfe">{{ workout_kcal }}<span style="font-size:.5em"> kcal</span></div><div class="l">🔥 운동 소비</div></div>
+    {% if dp and dp.available and dp.achievement_pct is not none %}
+    <div class="rm"><div class="v" style="color:{% if dp.achievement_pct >= 100 %}var(--green){% elif dp.achievement_pct < 80 %}var(--red){% else %}var(--accent){% endif %}">{{ dp.achievement_pct }}%</div><div class="l">📉 목표 {{ '적자' if dp.direction=='deficit' else '잉여' }} 달성</div></div>
+    {% endif %}
+  </div>
+
+  {% if inbody_delta %}
+  <div style="margin-top:16px;background:var(--card);border:1px solid var(--border);border-radius:12px;padding:14px">
+    <div style="font-size:.8em;color:var(--text2);margin-bottom:8px">📏 인바디 변화 (직전 대비)</div>
+    <div style="display:flex;flex-wrap:wrap;gap:14px">
+      {% set labels = {'weight_kg':'체중','skeletal_muscle_kg':'골격근','body_fat_kg':'체지방','body_fat_pct':'체지방률'} %}
+      {% set units = {'weight_kg':'kg','skeletal_muscle_kg':'kg','body_fat_kg':'kg','body_fat_pct':'%'} %}
+      {% for k, v in inbody_delta.items() %}
+      {% set good = (v < 0) if k in ['weight_kg','body_fat_kg','body_fat_pct'] else (v > 0) %}
+      <div><span style="font-size:.78em;color:var(--text2)">{{ labels[k] }}</span>
+        <span style="font-weight:700;color:{% if v == 0 %}var(--text2){% elif good %}var(--green){% else %}var(--red){% endif %}">{{ '%+.1f'|format(v) }}{{ units[k] }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="report-foot">
+    <span>📊 tracked by <b>OhMyPersonalTrainer</b></span>
+    <span class="badge">AI 코칭</span>
+  </div>
+</div>
+
+<div class="copy-btn" onclick="navigator.clipboard.writeText(location.href).then(()=>{this.textContent='✅ 링크 복사됨'})">🔗 이 리포트 링크 복사 · 캡처해서 공유하세요</div>
+{% endblock %}

@@ -520,6 +520,69 @@ async def user_page(request: Request, target_user_id: int, user: dict = Depends(
     })
 
 
+@app.get("/report/{target_user_id}", response_class=HTMLResponse)
+async def weekly_report(request: Request, target_user_id: int, user: dict = Depends(require_user)):
+    """Shareable weekly progress report — the referral asset. A clean, branded
+    card a trainer can screenshot and forward. Own-self or trainer-of-group only."""
+    from datetime import timedelta
+    if target_user_id != user["user_id"]:
+        if user["is_trainer"]:
+            if not (set(get_user_groups(target_user_id)) & set(user["trainer_groups"])):
+                return HTMLResponse("<h1>접근 권한이 없습니다</h1>", status_code=403)
+        else:
+            return HTMLResponse("<h1>접근 권한이 없습니다</h1>", status_code=403)
+
+    today = date.today()
+    start = today - timedelta(days=6)
+    start_s, today_s = start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
+
+    conn = get_conn()
+    tu = conn.execute("SELECT * FROM users WHERE user_id=? LIMIT 1", (target_user_id,)).fetchone()
+    name = (dict(tu).get("name") if tu else None) or f"회원 {target_user_id}"
+
+    workouts = conn.execute(
+        "SELECT COUNT(*) c, SUM(estimated_kcal) k FROM records WHERE user_id=? AND date>=? AND date<=?",
+        (target_user_id, start_s, today_s),
+    ).fetchone()
+    meals = conn.execute(
+        """SELECT COUNT(DISTINCT date) d, AVG(estimated_kcal) ak, AVG(protein_g) ap
+           FROM meals WHERE user_id=? AND date>=? AND date<=?""",
+        (target_user_id, start_s, today_s),
+    ).fetchone()
+    log_days = conn.execute(
+        """SELECT COUNT(DISTINCT date) d FROM (
+             SELECT date FROM records WHERE user_id=? AND date>=? AND date<=?
+             UNION SELECT date FROM meals WHERE user_id=? AND date>=? AND date<=?)""",
+        (target_user_id, start_s, today_s, target_user_id, start_s, today_s),
+    ).fetchone()["d"]
+    conn.close()
+
+    inbody_hist = get_inbody_history(target_user_id, limit=2)
+    inbody_delta = None
+    if len(inbody_hist) >= 2:
+        cur, prev = inbody_hist[0], inbody_hist[1]
+        inbody_delta = {}
+        for key in ("weight_kg", "skeletal_muscle_kg", "body_fat_kg", "body_fat_pct"):
+            if cur.get(key) is not None and prev.get(key) is not None:
+                inbody_delta[key] = round(float(cur[key]) - float(prev[key]), 1)
+
+    deficit_progress = compute_deficit_progress(target_user_id, today_s)
+
+    return templates.TemplateResponse(request, "report.html", {
+        "request": request,
+        "name": name,
+        "period": f"{start_s} ~ {today_s}",
+        "workout_count": workouts["c"] or 0,
+        "workout_kcal": round(workouts["k"] or 0),
+        "adherence_pct": round(log_days / 7 * 100),
+        "log_days": log_days,
+        "avg_kcal": round(meals["ak"]) if meals["ak"] else None,
+        "avg_protein": round(meals["ap"]) if meals["ap"] else None,
+        "inbody_delta": inbody_delta,
+        "deficit_progress": deficit_progress,
+    })
+
+
 @app.get("/trainer", response_class=HTMLResponse)
 async def trainer_page(request: Request, user: dict = Depends(require_user)):
     if not user["is_trainer"]:

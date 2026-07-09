@@ -371,8 +371,9 @@
     </div>
     {% endif %}
 
-    <div class="client-footer">
-      <a href="/user/{{ c.user_id }}" class="btn-view">전체 기록 보기 →</a>
+    <div class="client-footer" style="display:flex;gap:8px;justify-content:flex-end">
+      <a href="/report/{{ c.user_id }}" class="btn-view" style="background:var(--card2);color:var(--text)">📊 리포트</a>
+      <a href="/user/{{ c.user_id }}" class="btn-view">전체 기록 →</a>
     </div>
   </div>
   {% endfor %}

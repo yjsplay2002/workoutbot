@@ -1,7 +1,10 @@
 {% extends "base.html" %}
 {% block title %}{{ target_user.name or ('사용자 ' ~ target_user.user_id) }}{% endblock %}
 {% block content %}
-<h1>👤 {{ target_user.name or ('사용자 ' ~ target_user.user_id) }}</h1>
+<div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px">
+  <h1 style="margin:0">👤 {{ target_user.name or ('사용자 ' ~ target_user.user_id) }}</h1>
+  <a href="/report/{{ target_user.user_id }}" style="background:var(--accent);color:#fff;padding:8px 16px;border-radius:8px;text-decoration:none;font-size:.9em;font-weight:600">📊 주간 리포트</a>
+</div>
 <div class="stats-grid">
   <div class="stat-card"><div class="label">총 기록</div><div class="value">{{ stats.cnt or 0 }}</div></div>
   <div class="stat-card"><div class="label">평균 칼로리</div><div class="value">{{ (stats.avg_kcal or 0)|round(0)|int }} kcal</div></div>
