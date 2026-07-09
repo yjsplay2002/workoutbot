@@ -7,6 +7,15 @@ import os
 import sqlite3
 from datetime import datetime, date
 from typing import Optional
+from zoneinfo import ZoneInfo
+
+KST = ZoneInfo("Asia/Seoul")
+
+
+def _kst_today() -> date:
+    """Server runs in UTC on Render; users are in Korea. 'Today' must be KST so
+    the dashboard's today-records/deficit/scoreboard match the user's clock."""
+    return datetime.now(KST).date()
 
 import httpx
 from fastapi import FastAPI, Request, Query, Depends
@@ -251,7 +260,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
     user_id = user["user_id"]
 
     # Calendar month
-    today = date.today()
+    today = _kst_today()
     cal_year = year or today.year
     cal_month = month or today.month
     # Clamp
@@ -293,7 +302,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
     conn.close()
 
     # Goals / inbody / plan — for non-trainer users only (trainer dashboard already has its own)
-    today_str = date.today().strftime("%Y-%m-%d")
+    today_str = _kst_today().strftime("%Y-%m-%d")
     if not user["is_trainer"]:
         active_goals = list_goals(user_id)
         latest_inbody = get_latest_inbody(user_id)
@@ -314,7 +323,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         today_f = sum((m.get("fat_g") or 0) for m in today_meals_dash)
         for g in active_goals:
             try:
-                g["days_left"] = (datetime.strptime(g["target_date"], "%Y-%m-%d").date() - date.today()).days
+                g["days_left"] = (datetime.strptime(g["target_date"], "%Y-%m-%d").date() - _kst_today()).days
             except Exception:
                 g["days_left"] = None
             label, unit = GOAL_METRICS.get(g["metric"], (g["metric"], ""))
@@ -505,7 +514,7 @@ async def user_page(request: Request, target_user_id: int, user: dict = Depends(
     conn.close()
 
     # Goal deficit progress + goal card for this member
-    today_str = date.today().strftime("%Y-%m-%d")
+    today_str = _kst_today().strftime("%Y-%m-%d")
     deficit_progress = compute_deficit_progress(target_user_id, today_str)
     latest_inbody = get_latest_inbody(target_user_id)
     return templates.TemplateResponse(request, "user.html", {
@@ -532,7 +541,7 @@ async def weekly_report(request: Request, target_user_id: int, user: dict = Depe
         else:
             return HTMLResponse("<h1>접근 권한이 없습니다</h1>", status_code=403)
 
-    today = date.today()
+    today = _kst_today()
     start = today - timedelta(days=6)
     start_s, today_s = start.strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d")
 
@@ -589,7 +598,7 @@ async def trainer_page(request: Request, user: dict = Depends(require_user)):
         return HTMLResponse("<h1>접근 권한이 없습니다</h1><p>트레이너만 접근할 수 있습니다.</p>", status_code=403)
 
     conn = get_conn()
-    today = date.today()
+    today = _kst_today()
     today_str = today.strftime("%Y-%m-%d")
     this_month = today.strftime("%Y-%m")
 
@@ -844,7 +853,7 @@ async def goals_page(request: Request, user: dict = Depends(require_user)):
     achieved = [dict(r) for r in rows]
     conn.close()
 
-    today = date.today()
+    today = _kst_today()
     for g in goals + achieved:
         try:
             g["days_left"] = (datetime.strptime(g["target_date"], "%Y-%m-%d").date() - today).days
@@ -961,11 +970,11 @@ async def api_delete_inbody(inbody_id: int, user: dict = Depends(require_user)):
 
 @app.get("/meals", response_class=HTMLResponse)
 async def meals_page(request: Request, date_str: Optional[str] = Query(None, alias="date"), user: dict = Depends(require_user)):
-    today_str = date_str or date.today().strftime("%Y-%m-%d")
+    today_str = date_str or _kst_today().strftime("%Y-%m-%d")
     try:
         datetime.strptime(today_str, "%Y-%m-%d")
     except ValueError:
-        today_str = date.today().strftime("%Y-%m-%d")
+        today_str = _kst_today().strftime("%Y-%m-%d")
     today_meals = get_meals_for_date(user["user_id"], today_str)
     recent = get_recent_meals(user["user_id"], 30)
     today_kcal = sum((m.get("estimated_kcal") or 0) for m in today_meals)
@@ -1007,7 +1016,7 @@ async def api_delete_meal(meal_id: int, user: dict = Depends(require_user)):
 @app.get("/api/calendar")
 async def api_calendar(request: Request, year: Optional[int] = None, month: Optional[int] = None, user: dict = Depends(require_user)):
     """Calendar data as JSON."""
-    today = date.today()
+    today = _kst_today()
     y = year or today.year
     m = month or today.month
 
