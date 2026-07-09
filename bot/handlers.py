@@ -5,6 +5,7 @@ import logging
 import re
 from datetime import datetime, timedelta
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
 from bot.analyzer import (
@@ -72,6 +73,20 @@ from bot.database import (
 from bot.utils import check_rate_limit, format_history_summary
 
 logger = logging.getLogger(__name__)
+
+
+async def _safe_edit(status_msg, text: str, **kwargs):
+    """edit_text that tolerates Telegram's 'Message is not modified' 400.
+
+    Editing a message to content identical to what it already shows raises
+    BadRequest. That is harmless (the message already says what we want), so
+    swallow it instead of letting it bubble up as a fake '분석 중 오류'."""
+    try:
+        return await status_msg.edit_text(text, **kwargs)
+    except BadRequest as e:
+        if "not modified" in str(e).lower():
+            return status_msg
+        raise
 
 
 def _track_group_member(update: Update) -> None:
@@ -834,7 +849,7 @@ async def _process_meal_image(
     lock_to_default: bool = False,
 ) -> None:
     """Analyze a meal photo (uses first image). LLM decides meal_type splits."""
-    await status_msg.edit_text("🍽️ 식단 분석 중...")
+    await _safe_edit(status_msg, "🍽️ 식단 분석 중...")
     weight = get_user_weight(target_user_id, chat_id)
     height = get_user_height(target_user_id, chat_id)
     ctx_lines = []
@@ -1043,7 +1058,7 @@ async def _process_meal_text(
     text: str, default_meal_type: str, status_msg,
     lock_to_default: bool = False,
 ) -> None:
-    await status_msg.edit_text("🍽️ 식단 분석 중...")
+    await _safe_edit(status_msg, "🍽️ 식단 분석 중...")
     weight = get_user_weight(target_user_id, chat_id)
     height = get_user_height(target_user_id, chat_id)
     ctx_lines = []
