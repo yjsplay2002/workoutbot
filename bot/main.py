@@ -32,6 +32,7 @@ from bot.handlers import (
     cmd_today,
     cmd_unsettrainer,
     daily_summary_job,
+    daily_scoreboard_job,
     handle_photo,
     handle_text,
 )
@@ -104,7 +105,12 @@ def run_bot() -> None:
             time=dt.time(hour=21, minute=0, tzinfo=kst),
             name="daily_summary_21kst",
         )
-        logger.info("Daily summary job scheduled at 21:00 KST")
+        app.job_queue.run_daily(
+            daily_scoreboard_job,
+            time=dt.time(hour=21, minute=0, tzinfo=kst),
+            name="daily_scoreboard_21kst",
+        )
+        logger.info("Daily summary + scoreboard jobs scheduled at 21:00 KST")
     else:
         logger.warning("JobQueue not available — daily summary disabled")
 

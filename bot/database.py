@@ -1351,6 +1351,136 @@ def compute_deficit_progress(user_id: int, today: str) -> dict:
     return result
 
 
+def get_scoreboard_chats() -> list[int]:
+    """Group chats eligible for the nightly scoreboard: any chat with 2+ tracked
+    members (real coach/client groups, not solo DMs)."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT chat_id FROM group_members
+           GROUP BY chat_id HAVING COUNT(*) >= 2""",
+    ).fetchall()
+    conn.close()
+    return [r["chat_id"] for r in rows]
+
+
+def _consecutive_streak(log_dates: set, today_dt) -> int:
+    """Count consecutive days ending at (or the day before) today that have a log."""
+    from datetime import timedelta
+    streak = 0
+    d = today_dt
+    # Allow the streak to still count if nothing logged *today* yet but yesterday was.
+    if d.isoformat() not in log_dates:
+        d = d - timedelta(days=1)
+    while d.isoformat() in log_dates:
+        streak += 1
+        d = d - timedelta(days=1)
+    return streak
+
+
+def get_group_scoreboard(chat_id: int, date: str) -> dict:
+    """Build the nightly ranked accountability scoreboard for one group chat.
+
+    Per non-trainer member for `date`:
+      - trained_today (bool), meal_logged_today (bool)
+      - intake_kcal, target_kcal, kcal_pct (intake/target)
+      - exercise_kcal
+      - streak (consecutive logged days ending today)
+      - goal_pct (progress toward primary goal via latest InBody)
+    Rows are ranked: logged-today first, then streak, then goal progress.
+
+    Returns {date, chat_id, rows: [...], any_activity: bool}.
+    """
+    from datetime import date as _date, timedelta
+    try:
+        today_dt = datetime.strptime(date, "%Y-%m-%d").date()
+    except Exception:
+        today_dt = _date.today()
+
+    members = get_group_members(chat_id)
+    conn = get_conn()
+    rows = []
+    for m in members:
+        if m.get("is_trainer"):
+            continue
+        uid = m["user_id"]
+        name = m.get("name") or f"회원{uid}"
+
+        trained = conn.execute(
+            "SELECT COUNT(*) c FROM records WHERE user_id=? AND date=?",
+            (uid, date),
+        ).fetchone()["c"] > 0
+        ex_kcal = conn.execute(
+            "SELECT SUM(estimated_kcal) v FROM records WHERE user_id=? AND date=? AND estimated_kcal IS NOT NULL",
+            (uid, date),
+        ).fetchone()["v"] or 0
+        intake = conn.execute(
+            "SELECT SUM(estimated_kcal) v FROM meals WHERE user_id=? AND date=? AND estimated_kcal IS NOT NULL",
+            (uid, date),
+        ).fetchone()["v"] or 0
+        meal_logged = conn.execute(
+            "SELECT COUNT(*) c FROM meals WHERE user_id=? AND date=?",
+            (uid, date),
+        ).fetchone()["c"] > 0
+
+        # streak: distinct dates from records ∪ meals up to today
+        log_rows = conn.execute(
+            """SELECT date FROM records WHERE user_id=? AND date<=?
+               UNION SELECT date FROM meals WHERE user_id=? AND date<=?""",
+            (uid, date, uid, date),
+        ).fetchall()
+        log_dates = {r["date"] for r in log_rows}
+        streak = _consecutive_streak(log_dates, today_dt)
+
+        # target kcal + goal progress (pure DB, no LLM)
+        detail = compute_target_kcal_detailed(uid, date)
+        target_kcal = detail.get("target_kcal")
+        kcal_pct = round(intake / target_kcal * 100) if (target_kcal and intake) else None
+
+        goal_pct = None
+        primary = get_primary_goal(uid)
+        if primary and primary.get("start_value") is not None:
+            latest = get_latest_inbody(uid)
+            cur = (latest or {}).get(primary["metric"]) if latest else None
+            if cur is None and primary["metric"] == "weight":
+                cur = (latest or {}).get("weight_kg") if latest else None
+            if cur is not None:
+                try:
+                    span = float(primary["target_value"]) - float(primary["start_value"])
+                    done = float(cur) - float(primary["start_value"])
+                    goal_pct = 100 if span == 0 else max(0, min(100, round(done / span * 100)))
+                except Exception:
+                    goal_pct = None
+
+        rows.append({
+            "user_id": uid,
+            "name": name,
+            "trained": trained,
+            "meal_logged": meal_logged,
+            "intake_kcal": round(intake),
+            "exercise_kcal": round(ex_kcal),
+            "target_kcal": round(target_kcal) if target_kcal else None,
+            "kcal_pct": kcal_pct,
+            "streak": streak,
+            "goal_pct": goal_pct,
+            "logged_today": trained or meal_logged,
+        })
+    conn.close()
+
+    # Rank: logged-today desc, streak desc, goal progress desc, name asc
+    rows.sort(key=lambda r: (
+        0 if r["logged_today"] else 1,
+        -r["streak"],
+        -(r["goal_pct"] if r["goal_pct"] is not None else -1),
+        r["name"],
+    ))
+    return {
+        "date": date,
+        "chat_id": chat_id,
+        "rows": rows,
+        "any_activity": any(r["logged_today"] for r in rows),
+    }
+
+
 def get_active_users_recent(days: int = 7) -> list[dict]:
     """Users with any workout/meal/inbody activity in the last N days.
     Returns [{user_id, chat_id}] — uses latest activity's chat_id per user."""
