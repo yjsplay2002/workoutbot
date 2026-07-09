@@ -256,13 +256,18 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "<b>📅 일일 코칭:</b>\n"
         "• /plan — 오늘 권장 칼로리·식단 (LLM 생성)\n"
         "• /today — 오늘 요약 미리보기\n"
-        "• 매일 <b>오후 9시(KST)</b> 자동으로 그룹 채팅에 일일 요약·목표 평가 전송\n\n"
+        "• 매일 <b>오후 9시(KST)</b> 자동 알림:\n"
+        "   – 그룹: 🏆 오늘의 순위표 (회원별 운동·식단·칼로리 달성률·연속일·목표 진행률 랭킹)\n"
+        "   – 개인 DM: 하루 요약·목표 평가\n\n"
         "<b>⚙️ 설정:</b>\n"
         "• /setweight [kg], /setheight [cm]\n\n"
-        "<b>👥 그룹 관리 (관리자 전용):</b>\n"
-        "• /settrainer, /unsettrainer (답장 또는 @멘션)\n\n"
+        "<b>👥 그룹·트레이너 (관리자 전용):</b>\n"
+        "• /settrainer, /unsettrainer (답장 또는 @멘션)\n"
+        "• 트레이너는 매일 밤 <b>이탈 주의 회원</b>(3일+ 미기록)을 DM으로 자동 수신\n\n"
         "<b>🌐 웹 대시보드:</b>\n"
         "• 목표 카드 · 인바디 추이 · 일일 계획 · 식단 일지\n"
+        "• 🎯 오늘의 칼로리 적자·운동 소비 표기\n"
+        "• 📉 목표 칼로리 적자 달성 현황(필요 적자·하루 목표·누적 달성률·일자별 표)\n"
         "• https://workoutbot-ybbz.onrender.com",
         parse_mode="HTML",
     )
