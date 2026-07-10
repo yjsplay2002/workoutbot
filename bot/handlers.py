@@ -2,9 +2,10 @@ import asyncio
 import html
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta
-from telegram import Update
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.error import BadRequest
 from telegram.ext import ContextTypes
 
@@ -73,6 +74,17 @@ from bot.database import (
 from bot.utils import check_rate_limit, format_history_summary
 
 logger = logging.getLogger(__name__)
+
+
+WEB_URL = os.environ.get("WEB_URL", "https://workoutbot-ybbz.onrender.com")
+
+
+def _dashboard_kb() -> InlineKeyboardMarkup:
+    """Inline URL button that opens the dashboard in the phone's default browser.
+    Telegram's chat/menu button can only host a WebApp (in-app browser) or the
+    command list — an inline url button is the only way to hand off to the
+    external browser."""
+    return InlineKeyboardMarkup([[InlineKeyboardButton("🌐 대시보드 열기 (브라우저)", url=WEB_URL)]])
 
 
 async def _safe_edit(status_msg, text: str, **kwargs):
@@ -202,9 +214,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             f"🏋️ <b>운동 기록 분석 봇</b>\n\n"
             f"안녕하세요, {user.first_name}님! (체중: {weight}kg, 키: {height}cm)\n\n"
             "운동 기록을 사진이나 텍스트로 보내주세요. 자동으로 분석해드립니다!\n\n"
-            "🌐 웹 대시보드: https://workoutbot-ybbz.onrender.com\n"
+            "아래 버튼으로 웹 대시보드를 열 수 있습니다.\n"
             "전체 명령어는 /help 를 확인해주세요.",
             parse_mode="HTML",
+            reply_markup=_dashboard_kb(),
         )
         return
 
@@ -223,9 +236,10 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "2️⃣ 키 설정: /setheight [cm]\n"
         "   예: /setheight 175\n\n"
         "설정 완료 후 운동 기록을 보내주시면 됩니다! 💪\n"
-        "🌐 웹 대시보드: https://workoutbot-ybbz.onrender.com\n"
+        "웹 대시보드는 아래 버튼으로 열 수 있습니다.\n"
         "전체 명령어는 /help 를 확인해주세요.",
         parse_mode="HTML",
+        reply_markup=_dashboard_kb(),
     )
 
 
@@ -268,8 +282,9 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• 목표 카드 · 인바디 추이 · 일일 계획 · 식단 일지\n"
         "• 🎯 오늘의 칼로리 적자·운동 소비 표기\n"
         "• 📉 목표 칼로리 적자 달성 현황(필요 적자·하루 목표·누적 달성률·일자별 표)\n"
-        "• https://workoutbot-ybbz.onrender.com",
+        "• 아래 버튼으로 브라우저에서 열기",
         parse_mode="HTML",
+        reply_markup=_dashboard_kb(),
     )
 
 
