@@ -1040,3 +1040,72 @@ async def api_calendar(request: Request, year: Optional[int] = None, month: Opti
             for r in recs
         ]
     return JSONResponse({"year": y, "month": m, "days": result})
+
+
+# ── Native app API ───────────────────────────────────────────
+APP_API_TOKEN = os.environ.get("APP_API_TOKEN", "")
+
+
+def _check_app_token(request: Request) -> bool:
+    """Optional shared-secret gate for the native app. If APP_API_TOKEN is unset
+    (prototype), allow all; if set, require matching X-App-Token header."""
+    if not APP_API_TOKEN:
+        return True
+    return request.headers.get("X-App-Token") == APP_API_TOKEN
+
+
+@app.get("/api/app/summary")
+async def api_app_summary(request: Request, user_id: int):
+    """Compact dashboard payload for the native iOS app: today's calories,
+    macro target, goal-deficit progress, primary goal, streak, recent records."""
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    today_str = _kst_today().strftime("%Y-%m-%d")
+    conn = get_conn()
+    name_row = conn.execute("SELECT name FROM users WHERE user_id=? LIMIT 1", (user_id,)).fetchone()
+    ex = conn.execute(
+        "SELECT SUM(estimated_kcal) v FROM records WHERE user_id=? AND date=? AND estimated_kcal IS NOT NULL",
+        (user_id, today_str),
+    ).fetchone()["v"] or 0
+    recent = [
+        {
+            "id": r["id"], "date": r["date"], "category": r["category"],
+            "estimated_kcal": r["estimated_kcal"],
+        }
+        for r in conn.execute(
+            "SELECT id, date, category, estimated_kcal FROM records WHERE user_id=? ORDER BY created_at DESC LIMIT 10",
+            (user_id,),
+        ).fetchall()
+    ]
+    conn.close()
+
+    meals = get_meals_for_date(user_id, today_str)
+    today_intake = sum((m.get("estimated_kcal") or 0) for m in meals)
+    kcal_detail = compute_target_kcal_detailed(user_id, today_str)
+    deficit = compute_deficit_progress(user_id, today_str)
+    goals = list_goals(user_id)
+    primary = next((g for g in goals if g.get("is_primary")), goals[0] if goals else None)
+
+    return JSONResponse({
+        "user_id": user_id,
+        "name": (dict(name_row).get("name") if name_row else None) or f"회원 {user_id}",
+        "date": today_str,
+        "today": {
+            "intake_kcal": round(today_intake),
+            "exercise_kcal": round(ex),
+            "target_kcal": round(kcal_detail["target_kcal"]) if kcal_detail.get("target_kcal") else None,
+            "tdee": round(kcal_detail["tdee"]) if kcal_detail.get("tdee") else None,
+            "protein_g": round(sum((m.get("protein_g") or 0) for m in meals)),
+            "carbs_g": round(sum((m.get("carbs_g") or 0) for m in meals)),
+            "fat_g": round(sum((m.get("fat_g") or 0) for m in meals)),
+            "macros": kcal_detail.get("macros"),
+        },
+        "primary_goal": {
+            "metric": primary["metric"],
+            "target_value": primary["target_value"],
+            "target_date": primary["target_date"],
+        } if primary else None,
+        "deficit": deficit if deficit.get("available") else {"available": False, "reason": deficit.get("reason", "")},
+        "recent_records": recent,
+    })
