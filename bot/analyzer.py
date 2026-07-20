@@ -8,10 +8,12 @@ from openai import AsyncOpenAI
 
 client: Optional[AsyncOpenAI] = None
 
-MAIN_MODEL = os.environ.get("MAIN_MODEL", "gpt-5.5")
-VISION_MODEL = os.environ.get("VISION_MODEL", MAIN_MODEL)
+MAIN_MODEL = os.environ.get("MAIN_MODEL", "gpt-5-mini")
+VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-5-mini")
 # Cheap fast model for intent routing. Override via env if you want a smaller/faster one.
-CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", MAIN_MODEL)
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "gpt-5-nano")
+# Used when the primary model call fails (e.g. model unavailable, rate limit).
+FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "gpt-5.6-luna")
 
 
 def get_client() -> AsyncOpenAI:
@@ -22,6 +24,19 @@ def get_client() -> AsyncOpenAI:
             timeout=120.0,
         )
     return client
+
+
+async def _create(**kwargs):
+    """chat.completions.create with automatic fallback to FALLBACK_MODEL on failure."""
+    c = get_client()
+    try:
+        return await c.chat.completions.create(**kwargs)
+    except Exception:
+        model = kwargs.get("model")
+        if not FALLBACK_MODEL or FALLBACK_MODEL == model:
+            raise
+        kwargs["model"] = FALLBACK_MODEL
+        return await c.chat.completions.create(**kwargs)
 
 
 EXTRACT_SYSTEM = (
@@ -98,7 +113,7 @@ async def extract_from_image(image_bytes: bytes, user_caption: str = "") -> str:
                 "사진에 그 운동기구나 환경이 보이면 메모의 수치를 사용하세요. 메모만으로 운동이 명확하면 메모 기준으로 추출해도 됩니다."
             ),
         })
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=VISION_MODEL,
         messages=[
             {"role": "system", "content": EXTRACT_SYSTEM},
@@ -111,7 +126,7 @@ async def extract_from_image(image_bytes: bytes, user_caption: str = "") -> str:
 
 async def extract_from_text(text: str) -> str:
     c = get_client()
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": EXTRACT_SYSTEM},
@@ -129,7 +144,7 @@ async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None,
     history_info = f"\n\n최근 운동 이력:\n{history_summary}" if history_summary else ""
 
     c = get_client()
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": ANALYSIS_SYSTEM},
@@ -339,7 +354,7 @@ async def extract_inbody(image_bytes: bytes, user_caption: str = "") -> dict:
             "type": "text",
             "text": f"사용자 메모 (측정일·체중 등 부가 정보일 수 있음): {user_caption}",
         })
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=VISION_MODEL,
         messages=[
             {"role": "system", "content": INBODY_SYSTEM},
@@ -437,7 +452,7 @@ async def extract_meal_from_image(image_bytes: bytes, default_meal_type: str, us
         f"{user_ctx}\n\n"
         "이 사진(과 캡션)에서 사용자가 무엇을 먹었는지 분석해주세요."
     )
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=VISION_MODEL,
         messages=[
             {"role": "system", "content": MEAL_SYSTEM},
@@ -470,7 +485,7 @@ async def extract_meal_from_text(text: str, default_meal_type: str, user_ctx: st
         f"{user_ctx}\n\n"
         f"식단 내용:\n{text}"
     )
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": MEAL_SYSTEM},
@@ -569,7 +584,7 @@ PLAN_SYSTEM = (
 
 async def generate_daily_plan(context_md: str) -> dict:
     c = get_client()
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": PLAN_SYSTEM},
@@ -594,7 +609,7 @@ SUMMARY_SYSTEM = (
 
 async def generate_daily_summary(context_md: str) -> dict:
     c = get_client()
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=MAIN_MODEL,
         messages=[
             {"role": "system", "content": SUMMARY_SYSTEM},
@@ -645,7 +660,7 @@ async def classify_intent_from_image(image_bytes: bytes, hint: str = "") -> dict
     b64 = base64.b64encode(image_bytes).decode()
     c = get_client()
     user_text = "이 사진을 분류해주세요." + (f"\n참고: {hint}" if hint else "")
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=CLASSIFIER_MODEL,
         messages=[
             {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
@@ -666,7 +681,7 @@ async def classify_intent_from_image(image_bytes: bytes, hint: str = "") -> dict
 async def classify_intent_from_text(text: str, hint: str = "") -> dict:
     c = get_client()
     user_text = f"다음 텍스트를 분류해주세요:\n\n{text}" + (f"\n\n참고: {hint}" if hint else "")
-    resp = await c.chat.completions.create(
+    resp = await _create(
         model=CLASSIFIER_MODEL,
         messages=[
             {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
