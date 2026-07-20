@@ -661,7 +661,7 @@ async def classify_intent_from_image(image_bytes: bytes, hint: str = "") -> dict
     c = get_client()
     user_text = "이 사진을 분류해주세요." + (f"\n참고: {hint}" if hint else "")
     resp = await _create(
-        model=CLASSIFIER_MODEL,
+        model=VISION_MODEL,  # 이미지 분류는 비전 정확도 필요 — nano 대신 vision 모델
         messages=[
             {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
             {
