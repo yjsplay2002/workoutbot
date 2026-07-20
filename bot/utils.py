@@ -3,7 +3,7 @@ from typing import Dict
 
 # Rate limiter: chat_id -> last analysis timestamp
 _last_analysis: Dict[int, float] = {}
-RATE_LIMIT_SECONDS = 30
+RATE_LIMIT_SECONDS = 1
 
 
 def check_rate_limit(chat_id: int) -> bool:
