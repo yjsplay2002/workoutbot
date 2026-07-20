@@ -15,7 +15,7 @@ services:
       - key: VISION_MODEL
         value: "gpt-5-mini"
       - key: CLASSIFIER_MODEL
-        value: "gpt-5-nano"
+        value: "gpt-5-mini"
       - key: FALLBACK_MODEL
         value: "gpt-5.6-luna"
     disk:

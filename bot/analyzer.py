@@ -10,8 +10,9 @@ client: Optional[AsyncOpenAI] = None
 
 MAIN_MODEL = os.environ.get("MAIN_MODEL", "gpt-5-mini")
 VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-5-mini")
-# Cheap fast model for intent routing. Override via env if you want a smaller/faster one.
-CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "gpt-5-nano")
+# Intent routing (text + image classification). nano proved too weak — misclassified
+# meal text/photos as workout — so default to mini. Override via env if desired.
+CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "gpt-5-mini")
 # Used when the primary model call fails (e.g. model unavailable, rate limit).
 FALLBACK_MODEL = os.environ.get("FALLBACK_MODEL", "gpt-5.6-luna")
 
@@ -661,7 +662,7 @@ async def classify_intent_from_image(image_bytes: bytes, hint: str = "") -> dict
     c = get_client()
     user_text = "이 사진을 분류해주세요." + (f"\n참고: {hint}" if hint else "")
     resp = await _create(
-        model=VISION_MODEL,  # 이미지 분류는 비전 정확도 필요 — nano 대신 vision 모델
+        model=CLASSIFIER_MODEL,
         messages=[
             {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
             {
