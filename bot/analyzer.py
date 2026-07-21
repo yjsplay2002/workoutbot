@@ -9,7 +9,7 @@ from openai import AsyncOpenAI
 client: Optional[AsyncOpenAI] = None
 
 MAIN_MODEL = os.environ.get("MAIN_MODEL", "gpt-5-mini")
-VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-5-mini")
+VISION_MODEL = os.environ.get("VISION_MODEL", "gpt-5.6-luna")
 # Intent routing (text + image classification). nano proved too weak — misclassified
 # meal text/photos as workout — so default to mini. Override via env if desired.
 CLASSIFIER_MODEL = os.environ.get("CLASSIFIER_MODEL", "gpt-5-mini")
