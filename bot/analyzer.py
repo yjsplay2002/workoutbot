@@ -146,7 +146,7 @@ async def extract_from_text(text: str) -> str:
             {"role": "system", "content": EXTRACT_SYSTEM},
             {"role": "user", "content": text},
         ],
-        max_completion_tokens=1500,
+        max_completion_tokens=6000,
     )
     return resp.choices[0].message.content or ""
 
@@ -167,7 +167,7 @@ async def analyze_workout(structured_md: str, weight_kg: Optional[float] = None,
                 "content": f"{weight_info}{history_info}\n\n오늘의 운동 기록:\n{structured_md}",
             },
         ],
-        max_completion_tokens=2500,
+        max_completion_tokens=8000,
     )
     return resp.choices[0].message.content or ""
 
@@ -374,7 +374,7 @@ async def extract_inbody(image_bytes: bytes, user_caption: str = "") -> dict:
             {"role": "system", "content": INBODY_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        max_completion_tokens=600,
+        max_completion_tokens=4000,
         response_format={"type": "json_object"},
     )
     content = resp.choices[0].message.content or ""
@@ -478,7 +478,7 @@ async def extract_meal_from_image(image_bytes: bytes, default_meal_type: str, us
                 ],
             },
         ],
-        max_completion_tokens=1500,
+        max_completion_tokens=6000,
         response_format={"type": "json_object"},
     )
     raw = resp.choices[0].message.content or ""
@@ -505,7 +505,7 @@ async def extract_meal_from_text(text: str, default_meal_type: str, user_ctx: st
             {"role": "system", "content": MEAL_SYSTEM},
             {"role": "user", "content": prompt},
         ],
-        max_completion_tokens=1500,
+        max_completion_tokens=6000,
         response_format={"type": "json_object"},
     )
     raw = resp.choices[0].message.content or ""
@@ -604,7 +604,7 @@ async def generate_daily_plan(context_md: str) -> dict:
             {"role": "system", "content": PLAN_SYSTEM},
             {"role": "user", "content": context_md},
         ],
-        max_completion_tokens=1500,
+        max_completion_tokens=8000,
         response_format={"type": "json_object"},
     )
     return _safe_json(resp.choices[0].message.content or "")
@@ -629,7 +629,7 @@ async def generate_daily_summary(context_md: str) -> dict:
             {"role": "system", "content": SUMMARY_SYSTEM},
             {"role": "user", "content": context_md},
         ],
-        max_completion_tokens=1400,
+        max_completion_tokens=6000,
         response_format={"type": "json_object"},
     )
     return _safe_json(resp.choices[0].message.content or "")
@@ -674,7 +674,7 @@ async def recommend_workout(context_md: str) -> str:
             {"role": "system", "content": RECOMMEND_SYSTEM},
             {"role": "user", "content": context_md},
         ],
-        max_completion_tokens=1200,
+        max_completion_tokens=6000,
     )
     return resp.choices[0].message.content or ""
 
@@ -730,7 +730,7 @@ async def classify_intent_from_image(image_bytes: bytes, hint: str = "") -> dict
                 ],
             },
         ],
-        max_completion_tokens=400,
+        max_completion_tokens=2000,
         response_format={"type": "json_object"},
     )
     return _safe_json(resp.choices[0].message.content or "")
@@ -745,7 +745,7 @@ async def classify_intent_from_text(text: str, hint: str = "") -> dict:
             {"role": "system", "content": INTENT_CLASSIFIER_SYSTEM},
             {"role": "user", "content": user_text},
         ],
-        max_completion_tokens=400,
+        max_completion_tokens=2000,
         response_format={"type": "json_object"},
     )
     return _safe_json(resp.choices[0].message.content or "")
