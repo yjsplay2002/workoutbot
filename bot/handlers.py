@@ -812,9 +812,36 @@ async def _process_workout_album(
         body = html.escape((structured or "").strip())
         if len(body) > 1500:
             body = body[:1500] + "..."
-        blocks.append(f"{title}\n<pre>{body}</pre>\nID {rec_id} · 분석 리포트는 /analyze 또는 웹 대시보드에서 생성.")
+        blocks.append(f"{title}\n<pre>{body}</pre>\nID {rec_id}")
     msg = "\n\n".join(blocks)
     await status_msg.edit_text(msg[:4000] if len(msg) > 4000 else msg, parse_mode="HTML")
+
+    # Auto-analyze right after saving, then hand over a dashboard link.
+    analyze_msg = await update.message.reply_text("📊 코치 분석 생성 중...")
+    try:
+        weight = get_user_weight(target_user_id, chat_id)
+        height = get_user_height(target_user_id, chat_id)
+        history = get_recent_records(chat_id, target_user_id, 5)
+        last_analysis = None
+        for rec_id, date, structured, merged in saved_records:
+            analysis = await analyze_workout(
+                structured, weight, format_history_summary(history), height_cm=height,
+            )
+            kcal = extract_kcal(analysis)
+            # Persist so the web dashboard shows analysis + kcal without re-running.
+            merge_record(rec_id, structured, analysis, kcal, category=classify_workout(structured))
+            last_analysis = analysis
+        if last_analysis:
+            out = last_analysis[:4000]
+            await analyze_msg.edit_text(out, parse_mode="HTML", reply_markup=_dashboard_kb())
+        else:
+            await analyze_msg.edit_text("❌ 분석 결과가 비어 있습니다.", reply_markup=_dashboard_kb())
+    except Exception as e:
+        logger.error(f"Auto-analysis error: {e}")
+        await analyze_msg.edit_text(
+            "⚠️ 기록은 저장됐지만 분석 생성에 실패했습니다. /analyze 로 다시 시도하세요.",
+            reply_markup=_dashboard_kb(),
+        )
 
 
 async def _process_inbody_image(
