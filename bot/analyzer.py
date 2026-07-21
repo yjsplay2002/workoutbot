@@ -622,6 +622,50 @@ async def generate_daily_summary(context_md: str) -> dict:
     return _safe_json(resp.choices[0].message.content or "")
 
 
+# ── Workout recommendation ───────────────────────────────────
+
+# Uses luna by default — cheap and good enough for freeform coaching text.
+RECOMMEND_MODEL = os.environ.get("RECOMMEND_MODEL", "gpt-5.6-luna")
+
+RECOMMEND_SYSTEM = (
+    "You are a certified Korean strength & conditioning coach. Based on the user's recent "
+    "workout history, profile, and goals in the context, recommend TODAY's workout.\n\n"
+    "Reasoning:\n"
+    "- Look at which muscle groups were trained most recently and prioritize UNDER-worked "
+    "groups today (avoid hitting the same major muscles two days in a row — allow recovery).\n"
+    "- If recent volume is low or history is empty, suggest a balanced full-body or a sensible "
+    "starting split.\n"
+    "- Match intensity/exercise selection to the user's goal (감량/증량/근비대/유지) and any injury "
+    "or equipment hints in the context.\n\n"
+    "Output format — Telegram-safe HTML, Korean, concise (mobile-friendly):\n"
+    "🏋️ <b>오늘 추천 운동</b>\n"
+    "(1-line summary: 오늘 어떤 부위/유형인지 + 왜 — 최근 기록 근거)\n\n"
+    "<b>운동 구성</b>\n"
+    "• 운동명 — 세트×횟수 (무게 가이드나 강도)\n"
+    "• ... (4-6개)\n\n"
+    "💡 <b>코치 팁</b>\n"
+    "(1-2 lines: 워밍업/휴식/폼 주의점)\n\n"
+    "RULES:\n"
+    "- Use ONLY these HTML tags: <b>, <i>, <u>, <s>, <code>. Use real newlines (\\n). "
+    "NEVER <br>, <p>, <div>, <ul>, <li>, tables.\n"
+    "- Reference the recent history explicitly (예: '어제 하체를 했으니 오늘은 상체 중심').\n"
+    "- Keep it actionable. All Korean."
+)
+
+
+async def recommend_workout(context_md: str) -> str:
+    c = get_client()
+    resp = await _create(
+        model=RECOMMEND_MODEL,
+        messages=[
+            {"role": "system", "content": RECOMMEND_SYSTEM},
+            {"role": "user", "content": context_md},
+        ],
+        max_completion_tokens=1200,
+    )
+    return resp.choices[0].message.content or ""
+
+
 # ── Intent classification ────────────────────────────────────
 
 INTENT_CLASSIFIER_SYSTEM = (

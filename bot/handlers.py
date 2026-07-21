@@ -26,6 +26,7 @@ from bot.analyzer import (
     group_by_date,
     is_fitness_relevant_text,
     is_workout_text,
+    recommend_workout,
     strip_date_line,
 )
 from bot.database import (
@@ -1039,6 +1040,12 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     if target_user_id != user.id:
         upsert_user(target_user_id, chat_id, f"client_{target_user_id}")
 
+    # Workout recommendation request ("오늘 운동 추천해줘") — handle before the
+    # log classifier, otherwise it gets read as a workout log and fails extraction.
+    if _is_workout_recommend_request(text):
+        await _process_workout_recommendation(update, chat_id, target_user_id)
+        return
+
     status_msg = await update.message.reply_text("🤔 분류 중...")
 
     try:
@@ -1071,6 +1078,36 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     except Exception as e:
         logger.error(f"Text dispatch error (intent={intent}): {e}")
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
+
+
+_RECOMMEND_KEYWORDS = ("추천", "뭐 하", "뭐하", "무슨 운동", "어떤 운동", "뭘 해", "뭐 할까")
+
+
+def _is_workout_recommend_request(text: str) -> bool:
+    """Detect a workout-recommendation request (not a workout log).
+    Requires a workout cue + a recommendation cue so meal/log text isn't caught."""
+    t = text.lower()
+    has_workout_cue = "운동" in t or "루틴" in t or "workout" in t
+    has_recommend_cue = any(kw in t for kw in _RECOMMEND_KEYWORDS)
+    return has_workout_cue and has_recommend_cue
+
+
+async def _process_workout_recommendation(
+    update: Update, chat_id: int, target_user_id: int
+) -> None:
+    """Recommend today's workout based on the user's recent workout history."""
+    status_msg = await update.message.reply_text("🏋️ 최근 기록 참고해 추천 준비 중...")
+    date = message_date_kst(update.message)
+    try:
+        ctx_md = _build_plan_context(target_user_id, chat_id, date)
+        recommendation = await recommend_workout(ctx_md)
+        if not recommendation.strip():
+            await status_msg.edit_text("❌ 추천 생성에 실패했습니다. 잠시 후 다시 시도해 주세요.")
+            return
+        await status_msg.edit_text(recommendation, parse_mode="HTML")
+    except Exception as e:
+        logger.error(f"Workout recommendation error: {e}")
+        await status_msg.edit_text("❌ 추천 생성 중 오류가 발생했습니다.")
 
 
 async def _process_meal_text(
