@@ -58,7 +58,7 @@ private struct DetailSection: View {
                 .font(.headline)
 
             if let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                Text(text)
+                Text(HTMLText.plain(text))
                     .font(.body)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .textSelection(.enabled)

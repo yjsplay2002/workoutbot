@@ -25,10 +25,11 @@ struct RootView: View {
                 NavigationStack {
                     SettingsView()
                 }
-                    .tabItem {
-                        Label("설정", systemImage: "gearshape.fill")
-                    }
+                .tabItem {
+                    Label("설정", systemImage: "gearshape.fill")
+                }
             }
+            .tint(.blue)
         } else {
             NavigationStack {
                 SettingsView(showOnboardingMessage: true)

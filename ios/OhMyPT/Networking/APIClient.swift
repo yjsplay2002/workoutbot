@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 enum APIError: LocalizedError {
     case invalidBaseURL
@@ -8,6 +9,7 @@ enum APIError: LocalizedError {
     case httpStatus(Int, String?)
     case decoding(Error)
     case transport(Error)
+    case imageEncoding
 
     var errorDescription: String? {
         switch self {
@@ -28,6 +30,8 @@ enum APIError: LocalizedError {
             return "서버 응답 형식이 예상과 다릅니다."
         case .transport(let error):
             return error.localizedDescription
+        case .imageEncoding:
+            return "이미지를 준비하지 못했습니다."
         }
     }
 }
@@ -44,6 +48,8 @@ struct APIClient {
         self.decoder.keyDecodingStrategy = .convertFromSnakeCase
     }
 
+    // MARK: - Read
+
     func fetchSummary() async throws -> AppSummary {
         let url = try makeURL(path: "api/app/summary", queryItems: [
             URLQueryItem(name: "user_id", value: String(try requireUserID()))
@@ -51,13 +57,97 @@ struct APIClient {
         return try await request(url)
     }
 
-    func fetchRecords(limit: Int = 20) async throws -> [WorkoutRecord] {
+    func fetchRecords(limit: Int = 50) async throws -> [WorkoutRecord] {
         let url = try makeURL(path: "api/records", queryItems: [
             URLQueryItem(name: "user_id", value: String(try requireUserID())),
             URLQueryItem(name: "limit", value: String(limit))
         ])
         return try await request(url)
     }
+
+    // MARK: - Write
+
+    func uploadPhoto(image: UIImage, caption: String) async throws -> AnalysisResult {
+        let userID = try requireUserID()
+        guard let jpeg = image.jpegData(compressionQuality: 0.82) else {
+            throw APIError.imageEncoding
+        }
+
+        let url = try makeURL(path: "api/app/upload", queryItems: [])
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+
+        var body = Data()
+        appendFormField(to: &body, boundary: boundary, name: "user_id", value: String(userID))
+        appendFormField(to: &body, boundary: boundary, name: "caption", value: caption)
+        appendFileField(
+            to: &body,
+            boundary: boundary,
+            name: "photo",
+            filename: "photo.jpg",
+            mimeType: "image/jpeg",
+            data: jpeg
+        )
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        return try await send(request)
+    }
+
+    func submitTextRecord(text: String, analyze: Bool = false) async throws -> AnalysisResult {
+        let url = try makeURL(path: "api/app/record", queryItems: [])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+
+        let payload: [String: Any] = [
+            "user_id": try requireUserID(),
+            "text": text,
+            "analyze": analyze
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        return try await send(request)
+    }
+
+    func generatePlan(refresh: Bool = false) async throws -> DailyPlanPayload {
+        let url = try makeURL(path: "api/app/plan", queryItems: [])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+
+        let payload: [String: Any] = [
+            "user_id": try requireUserID(),
+            "refresh": refresh
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        return try await send(request)
+    }
+
+    func generateDailySummary(refresh: Bool = false) async throws -> DailyCoachSummary {
+        let url = try makeURL(path: "api/app/daily-summary", queryItems: [])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+
+        let payload: [String: Any] = [
+            "user_id": try requireUserID(),
+            "refresh": refresh
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        return try await send(request)
+    }
+
+    // MARK: - Internals
 
     private func requireUserID() throws -> Int {
         guard let userID = configuration.userID else {
@@ -80,7 +170,9 @@ struct APIClient {
         guard var components = URLComponents(url: fullURL, resolvingAgainstBaseURL: false) else {
             throw APIError.invalidBaseURL
         }
-        components.queryItems = queryItems
+        if !queryItems.isEmpty {
+            components.queryItems = queryItems
+        }
 
         guard let url = components.url else {
             throw APIError.invalidBaseURL
@@ -88,22 +180,30 @@ struct APIClient {
         return url
     }
 
-    private func request<T: Decodable>(_ url: URL) async throws -> T {
-        var request = URLRequest(url: url)
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-
+    private func applyToken(to request: inout URLRequest) {
         let token = configuration.trimmedToken
         if !token.isEmpty {
             request.setValue(token, forHTTPHeaderField: "X-App-Token")
         }
+    }
 
+    private func request<T: Decodable>(_ url: URL) async throws -> T {
+        var request = URLRequest(url: url)
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+        return try await send(request)
+    }
+
+    private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
         do {
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 throw APIError.invalidResponse
             }
 
-            guard (200..<300).contains(httpResponse.statusCode) else {
+            // 422 is used for "classified but failed extraction" — still decode body.
+            let acceptable = (200..<300).contains(httpResponse.statusCode) || httpResponse.statusCode == 422
+            guard acceptable else {
                 throw APIError.httpStatus(httpResponse.statusCode, parseErrorMessage(from: data))
             }
 
@@ -134,5 +234,28 @@ struct APIClient {
         }
 
         return String(data: data, encoding: .utf8)
+    }
+
+    private func appendFormField(to body: inout Data, boundary: String, name: String, value: String) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n".data(using: .utf8)!)
+        body.append("\(value)\r\n".data(using: .utf8)!)
+    }
+
+    private func appendFileField(
+        to body: inout Data,
+        boundary: String,
+        name: String,
+        filename: String,
+        mimeType: String,
+        data: Data
+    ) {
+        body.append("--\(boundary)\r\n".data(using: .utf8)!)
+        body.append(
+            "Content-Disposition: form-data; name=\"\(name)\"; filename=\"\(filename)\"\r\n".data(using: .utf8)!
+        )
+        body.append("Content-Type: \(mimeType)\r\n\r\n".data(using: .utf8)!)
+        body.append(data)
+        body.append("\r\n".data(using: .utf8)!)
     }
 }

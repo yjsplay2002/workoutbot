@@ -46,10 +46,22 @@ struct SettingsView: View {
 
             Section {
                 HStack {
-                    Label(configuration.isValid ? "설정 완료" : "필수 설정을 입력하세요", systemImage: configuration.isValid ? "checkmark.circle.fill" : "exclamationmark.circle.fill")
+                    Label(
+                        configuration.isValid ? "설정 완료" : "필수 설정을 입력하세요",
+                        systemImage: configuration.isValid ? "checkmark.circle.fill" : "exclamationmark.circle.fill"
+                    )
                     Spacer()
                 }
                 .foregroundStyle(configuration.isValid ? .green : .red)
+            }
+
+            Section("앱 안내") {
+                Label("사진·텍스트로 운동/식단/인바디를 기록합니다.", systemImage: "camera.viewfinder")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                Label("플랜·요약은 목표 등록 후 오늘 탭에서 생성합니다.", systemImage: "calendar")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
             }
         }
         .navigationTitle("설정")

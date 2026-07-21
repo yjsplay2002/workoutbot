@@ -3,6 +3,8 @@ import SwiftUI
 struct TodayView: View {
     let configuration: AppConfiguration
     @StateObject private var viewModel = TodayViewModel()
+    @State private var showPhotoUpload = false
+    @State private var showTextRecord = false
 
     var body: some View {
         NavigationStack {
@@ -16,12 +18,41 @@ struct TodayView: View {
 
                     if let summary = viewModel.summary {
                         TodayHeaderView(summary: summary)
+                        QuickActionsCard(
+                            onPhoto: { showPhotoUpload = true },
+                            onText: { showTextRecord = true }
+                        )
                         CaloriesCard(today: summary.today)
                         MacroCard(today: summary.today)
                         DeficitCard(deficit: summary.deficit, goal: summary.primaryGoal)
+                        PlanCard(
+                            plan: viewModel.plan,
+                            isGenerating: viewModel.isGeneratingPlan,
+                            onGenerate: { refresh in
+                                Task { await viewModel.generatePlan(configuration: configuration, refresh: refresh) }
+                            }
+                        )
+                        CoachSummaryCard(
+                            summary: viewModel.coachSummary,
+                            isGenerating: viewModel.isGeneratingSummary,
+                            onGenerate: { refresh in
+                                Task { await viewModel.generateCoachSummary(configuration: configuration, refresh: refresh) }
+                            }
+                        )
                         RecentRecordsCard(records: summary.recentRecords)
+
+                        if let action = viewModel.actionMessage {
+                            Text(action)
+                                .font(.footnote)
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
                     } else if !viewModel.isLoading && viewModel.errorMessage == nil {
                         StateMessageView(title: "데이터 없음", message: "표시할 오늘 데이터가 없습니다.", systemImage: "tray")
+                        QuickActionsCard(
+                            onPhoto: { showPhotoUpload = true },
+                            onText: { showTextRecord = true }
+                        )
                     }
                 }
                 .padding()
@@ -30,8 +61,20 @@ struct TodayView: View {
             .navigationTitle("오늘")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    if viewModel.isLoading {
+                    if viewModel.isLoading || viewModel.isGeneratingPlan || viewModel.isGeneratingSummary {
                         ProgressView()
+                    }
+                }
+                ToolbarItemGroup(placement: .navigationBarLeading) {
+                    Button {
+                        showPhotoUpload = true
+                    } label: {
+                        Image(systemName: "camera.fill")
+                    }
+                    Button {
+                        showTextRecord = true
+                    } label: {
+                        Image(systemName: "square.and.pencil")
                     }
                 }
             }
@@ -41,9 +84,25 @@ struct TodayView: View {
             .refreshable {
                 await viewModel.load(configuration: configuration)
             }
+            .sheet(isPresented: $showPhotoUpload, onDismiss: {
+                Task { await viewModel.load(configuration: configuration) }
+            }) {
+                NavigationStack {
+                    PhotoUploadView(configuration: configuration)
+                }
+            }
+            .sheet(isPresented: $showTextRecord, onDismiss: {
+                Task { await viewModel.load(configuration: configuration) }
+            }) {
+                NavigationStack {
+                    TextRecordView(configuration: configuration)
+                }
+            }
         }
     }
 }
+
+// MARK: - Subviews
 
 private struct TodayHeaderView: View {
     let summary: AppSummary
@@ -67,6 +126,47 @@ private struct TodayHeaderView: View {
             Spacer()
         }
         .cardStyle()
+    }
+}
+
+private struct QuickActionsCard: View {
+    let onPhoto: () -> Void
+    let onText: () -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Label("기록 추가", systemImage: "plus.circle.fill")
+                .font(.headline)
+
+            HStack(spacing: 12) {
+                ActionButton(title: "사진", systemImage: "camera.fill", tint: .blue, action: onPhoto)
+                ActionButton(title: "텍스트", systemImage: "text.badge.plus", tint: .indigo, action: onText)
+            }
+        }
+        .cardStyle()
+    }
+}
+
+private struct ActionButton: View {
+    let title: String
+    let systemImage: String
+    let tint: Color
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(spacing: 8) {
+                Image(systemName: systemImage)
+                    .font(.title2.weight(.semibold))
+                Text(title)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .foregroundStyle(tint)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 16)
+            .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -193,6 +293,168 @@ private struct DeficitCard: View {
             } else {
                 StateMessageView(title: "목표 정보 없음", message: deficit.reason ?? "목표 적자를 계산할 수 없습니다.", systemImage: "info.circle")
                     .padding(.vertical, 4)
+            }
+        }
+        .cardStyle()
+    }
+}
+
+private struct PlanCard: View {
+    let plan: DailyPlanPayload?
+    let isGenerating: Bool
+    let onGenerate: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Label("오늘의 플랜", systemImage: "calendar.badge.clock")
+                    .font(.headline)
+                Spacer()
+                if plan?.cached == true {
+                    Text("캐시")
+                        .font(.caption2.weight(.bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(.secondary.opacity(0.15), in: Capsule())
+                }
+            }
+
+            if let plan, plan.isSuccess, plan.error == nil,
+               plan.targetKcalIntake != nil || !(plan.breakfastSuggestion ?? "").isEmpty {
+                if let intake = plan.targetKcalIntake {
+                    Text("권장 섭취 \(Formatters.kcal(intake))")
+                        .font(.subheadline.weight(.semibold))
+                }
+                if let burn = plan.targetKcalBurn {
+                    Text("권장 소모 \(Formatters.kcal(burn))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+
+                mealBlock("🌅 아침", plan.breakfastSuggestion)
+                mealBlock("☀️ 점심", plan.lunchSuggestion)
+                mealBlock("🌙 저녁", plan.dinnerSuggestion)
+
+                if let rationale = plan.rationaleText, !rationale.isEmpty {
+                    Text(HTMLText.plain(rationale))
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let error = plan?.error {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("아직 생성된 플랜이 없습니다. 목표 등록 후 생성해 보세요.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    onGenerate(false)
+                } label: {
+                    if isGenerating {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text(plan == nil ? "플랜 생성" : "플랜 불러오기")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(isGenerating)
+
+                if plan != nil {
+                    Button("재생성") {
+                        onGenerate(true)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isGenerating)
+                }
+            }
+        }
+        .cardStyle()
+    }
+
+    @ViewBuilder
+    private func mealBlock(_ title: String, _ html: String?) -> some View {
+        if let html, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(.secondary)
+                Text(HTMLText.plain(html))
+                    .font(.subheadline)
+            }
+            .padding(.vertical, 2)
+        }
+    }
+}
+
+private struct CoachSummaryCard: View {
+    let summary: DailyCoachSummary?
+    let isGenerating: Bool
+    let onGenerate: (Bool) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Label("오늘 요약", systemImage: "moon.stars.fill")
+                .font(.headline)
+
+            if let summary, summary.isSuccess {
+                if let md = summary.summaryMd, !md.isEmpty {
+                    Text(HTMLText.plain(md))
+                        .font(.subheadline)
+                        .textSelection(.enabled)
+                }
+                if let assess = summary.goalAssessmentMd, !assess.isEmpty {
+                    Divider()
+                    Text("목표 평가")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                    Text(HTMLText.plain(assess))
+                        .font(.subheadline)
+                        .textSelection(.enabled)
+                }
+                if (summary.summaryMd ?? "").isEmpty && (summary.goalAssessmentMd ?? "").isEmpty {
+                    Text("요약 내용이 비어 있습니다.")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+            } else if let error = summary?.error {
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            } else {
+                Text("하루 기록을 바탕으로 코치 요약을 생성할 수 있습니다.")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+            }
+
+            HStack(spacing: 10) {
+                Button {
+                    onGenerate(false)
+                } label: {
+                    if isGenerating {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text(summary == nil ? "요약 생성" : "요약 불러오기")
+                            .frame(maxWidth: .infinity)
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.indigo)
+                .disabled(isGenerating)
+
+                if summary != nil {
+                    Button("재생성") {
+                        onGenerate(true)
+                    }
+                    .buttonStyle(.bordered)
+                    .disabled(isGenerating)
+                }
             }
         }
         .cardStyle()

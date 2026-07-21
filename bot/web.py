@@ -3,6 +3,8 @@
 import calendar as cal_module
 import hashlib
 import hmac
+import json
+import logging
 import os
 import sqlite3
 from datetime import datetime, date
@@ -18,7 +20,7 @@ def _kst_today() -> date:
     return datetime.now(KST).date()
 
 import httpx
-from fastapi import FastAPI, Request, Query, Depends
+from fastapi import FastAPI, File, Form, Request, Query, Depends, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 from itsdangerous import URLSafeSerializer
@@ -34,12 +36,15 @@ from bot.database import (
     get_all_records_by_month_for_trainer,
     get_all_records_for_trainer,
     get_daily_plan,
+    get_daily_summary,
     get_group_members,
     get_inbody_history,
     get_latest_inbody,
     get_meals_for_date,
     get_primary_goal,
     get_records_by_month,
+    get_recent_records,
+    get_today_record,
     compute_target_kcal_detailed,
     estimate_daily_target_kcal,
     get_records_for_user,
@@ -47,18 +52,46 @@ from bot.database import (
     get_recent_meals,
     compute_deficit_progress,
     get_group_scoreboard,
+    get_user_height,
     get_user_weight,
     get_trainer_groups,
     get_user_groups,
     is_user_trainer,
     list_goals,
+    merge_record,
+    save_inbody,
+    save_meal,
+    save_record,
     set_primary_goal,
     update_goal,
     update_goal_status,
     update_record_category,
     update_record_date,
+    upsert_daily_plan,
+    upsert_daily_summary,
+    upsert_user,
 )
-from bot.analyzer import classify_workout, get_category_color
+from bot.analyzer import (
+    analyze_workout,
+    classify_intent_from_image,
+    classify_intent_from_text,
+    classify_workout,
+    extract_date,
+    extract_from_image,
+    extract_from_text,
+    extract_inbody,
+    extract_kcal,
+    extract_meal_from_image,
+    extract_meal_from_text,
+    generate_daily_plan,
+    generate_daily_summary,
+    get_category_color,
+    group_by_date,
+    is_workout_text,
+    strip_date_line,
+)
+
+logger = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get("DB_PATH", os.path.join("data", "workout.db"))
 BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
@@ -1108,4 +1141,697 @@ async def api_app_summary(request: Request, user_id: int):
         } if primary else None,
         "deficit": deficit if deficit.get("available") else {"available": False, "reason": deficit.get("reason", "")},
         "recent_records": recent,
+        "plan": _serialize_plan(get_daily_plan(user_id, today_str)),
+        "daily_summary": _serialize_daily_summary(get_daily_summary(user_id, today_str)),
     })
+
+
+# ── Native app write APIs (upload / text record / plan / summary) ─
+
+def _app_today_str() -> str:
+    return _kst_today().strftime("%Y-%m-%d")
+
+
+def _resolve_app_chat_id(user_id: int) -> int:
+    """Pick a stable chat_id for app-originated records.
+
+    Prefer an existing group membership, else the user's last known chat_id from
+    the users table, else 0 (same convention as web goal creation).
+    """
+    groups = get_user_groups(user_id)
+    if groups:
+        return groups[0]
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT chat_id FROM users WHERE user_id=? ORDER BY created_at DESC LIMIT 1",
+        (user_id,),
+    ).fetchone()
+    conn.close()
+    return int(row["chat_id"]) if row else 0
+
+
+def _ensure_app_user(user_id: int, chat_id: int) -> None:
+    conn = get_conn()
+    row = conn.execute(
+        "SELECT name FROM users WHERE user_id=? LIMIT 1", (user_id,)
+    ).fetchone()
+    conn.close()
+    name = (dict(row).get("name") if row else None) or f"app_{user_id}"
+    upsert_user(user_id, chat_id, name)
+
+
+def _meal_type_by_time() -> str:
+    from bot.handlers import _meal_type_by_time as _h
+    return _h()
+
+
+def _format_meal_items_md(items: list) -> str:
+    from bot.handlers import format_meal_items_md
+    return format_meal_items_md(items)
+
+
+def _render_meal_html(meal: Optional[dict]) -> str:
+    from bot.handlers import _render_meal_html as _h
+    return _h(meal)
+
+
+def _build_plan_context(user_id: int, chat_id: int, date: str) -> str:
+    from bot.handlers import _build_plan_context as _h
+    return _h(user_id, chat_id, date)
+
+
+def _serialize_plan(plan: Optional[dict]) -> Optional[dict]:
+    if not plan:
+        return None
+    full = plan.get("full_plan") or ""
+    full_obj = None
+    if full:
+        try:
+            full_obj = json.loads(full) if isinstance(full, str) else full
+        except Exception:
+            full_obj = None
+    return {
+        "date": plan.get("date"),
+        "target_kcal_intake": plan.get("target_kcal_intake"),
+        "target_kcal_burn": plan.get("target_kcal_burn"),
+        "breakfast_suggestion": plan.get("breakfast_suggestion") or "",
+        "lunch_suggestion": plan.get("lunch_suggestion") or "",
+        "dinner_suggestion": plan.get("dinner_suggestion") or "",
+        "full_plan": full_obj,
+        "full_plan_raw": full if isinstance(full, str) else json.dumps(full, ensure_ascii=False),
+    }
+
+
+def _serialize_daily_summary(summary: Optional[dict]) -> Optional[dict]:
+    if not summary:
+        return None
+    return {
+        "date": summary.get("date"),
+        "summary_md": summary.get("summary_md") or "",
+        "goal_assessment_md": summary.get("goal_assessment_md") or "",
+    }
+
+
+def _save_meals_from_extraction_app(
+    chat_id: int,
+    user_id: int,
+    date: str,
+    data: dict,
+    raw_label: str,
+    default_meal_type: str,
+) -> list[dict]:
+    """Persist meal extraction (same shape as handlers._save_meals_from_extraction)."""
+    meals_by_type = (data or {}).get("meals_by_type") or {}
+    if not meals_by_type and (data or {}).get("items"):
+        meals_by_type = {
+            default_meal_type: {
+                "items": data["items"],
+                "total_kcal": data.get("total_kcal"),
+                "protein_g": data.get("protein_g"),
+                "carbs_g": data.get("carbs_g"),
+                "fat_g": data.get("fat_g"),
+                "summary_md": data.get("summary_md", ""),
+                "analysis_md": data.get("analysis_md", ""),
+            }
+        }
+
+    saved = []
+    for meal_type, meal_data in meals_by_type.items():
+        if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+            continue
+        items = (meal_data or {}).get("items") or []
+        if not items:
+            continue
+        items_md = _format_meal_items_md(items)
+        structured_md = meal_data.get("summary_md") or items_md
+        analysis_md = meal_data.get("analysis_md", "")
+        kcal = meal_data.get("total_kcal")
+        macros = {
+            "protein_g": meal_data.get("protein_g"),
+            "carbs_g": meal_data.get("carbs_g"),
+            "fat_g": meal_data.get("fat_g"),
+        }
+        meal_id = save_meal(
+            chat_id, user_id, date, meal_type, raw_label,
+            structured_md, kcal, macros, analysis_md,
+        )
+        saved.append({
+            "id": meal_id,
+            "meal_type": meal_type,
+            "structured_md": structured_md,
+            "analysis_md": analysis_md,
+            "items_md": items_md,
+            "estimated_kcal": kcal,
+            "protein_g": macros.get("protein_g"),
+            "carbs_g": macros.get("carbs_g"),
+            "fat_g": macros.get("fat_g"),
+            "date": date,
+        })
+    return saved
+
+
+async def _app_process_workout_image(
+    chat_id: int, user_id: int, image_bytes: bytes, caption: str, date: str,
+) -> dict:
+    structured = await extract_from_image(image_bytes, user_caption=caption)
+    all_extracted = []
+    if "NO_WORKOUT_DATA" not in structured:
+        all_extracted.append(structured)
+    elif caption and is_workout_text(caption):
+        text_result = await extract_from_text(caption)
+        if "NO_WORKOUT_DATA" not in text_result:
+            all_extracted.append(text_result)
+
+    if not all_extracted:
+        return {
+            "ok": False,
+            "intent": "workout",
+            "error": "운동 사진으로 인식했지만 기록을 추출하지 못했습니다.",
+        }
+
+    date_groups = group_by_date(all_extracted, fallback_date=date)
+    raw_label = f"[app-image] {caption}".strip() if caption else "[app-image]"
+    records = []
+    for rec_date, data_list in sorted(date_groups.items()):
+        combined = "\n\n".join(data_list)
+        category = classify_workout(combined)
+        existing = get_today_record(chat_id, user_id, rec_date)
+        if existing:
+            merged = (existing.get("structured_md") or "") + "\n\n" + combined
+            merge_record(
+                existing["id"], merged,
+                existing.get("analysis") or "",
+                existing.get("estimated_kcal"),
+                category=category,
+            )
+            records.append({
+                "id": existing["id"],
+                "date": rec_date,
+                "category": category,
+                "structured_md": merged,
+                "analysis": existing.get("analysis") or "",
+                "estimated_kcal": existing.get("estimated_kcal"),
+                "merged": True,
+            })
+        else:
+            new_id = save_record(
+                chat_id, user_id, raw_label, combined, "", None,
+                date=rec_date, category=category,
+            )
+            records.append({
+                "id": new_id,
+                "date": rec_date,
+                "category": category,
+                "structured_md": combined,
+                "analysis": "",
+                "estimated_kcal": None,
+                "merged": False,
+            })
+    return {
+        "ok": True,
+        "intent": "workout",
+        "message": f"운동 기록 {len(records)}건 저장 완료",
+        "records": records,
+    }
+
+
+async def _app_process_meal_image(
+    chat_id: int, user_id: int, image_bytes: bytes, caption: str,
+    date: str, default_meal_type: str,
+) -> dict:
+    weight = get_user_weight(user_id, chat_id)
+    height = get_user_height(user_id, chat_id)
+    ctx_lines = []
+    if weight:
+        ctx_lines.append(f"사용자 체중: {weight}kg")
+    if height:
+        ctx_lines.append(f"키: {height}cm")
+    if caption:
+        ctx_lines.append(f"사용자 메모: {caption}")
+    user_ctx = "\n".join(ctx_lines)
+
+    data = await extract_meal_from_image(
+        image_bytes, default_meal_type, user_ctx, lock_to_default=False,
+    )
+    raw_label = f"[app-image] {caption}".strip() if caption else "[app-image]"
+    saved = _save_meals_from_extraction_app(
+        chat_id, user_id, date, data, raw_label, default_meal_type,
+    )
+    if not saved:
+        return {
+            "ok": False,
+            "intent": "meal",
+            "error": "식사로 인식했지만 음식 정보를 추출하지 못했습니다.",
+        }
+    return {
+        "ok": True,
+        "intent": "meal",
+        "message": f"식단 {len(saved)}건 저장 완료",
+        "meals": saved,
+    }
+
+
+async def _app_process_inbody_image(
+    chat_id: int, user_id: int, image_bytes: bytes, caption: str, date: str,
+) -> dict:
+    metrics = await extract_inbody(image_bytes, user_caption=caption)
+    if not metrics:
+        return {
+            "ok": False,
+            "intent": "inbody",
+            "error": "인바디 이미지로 인식했지만 수치 추출에 실패했습니다.",
+        }
+
+    measured_at = metrics.get("measured_at") or date
+    try:
+        datetime.strptime(measured_at, "%Y-%m-%d")
+    except (ValueError, TypeError):
+        measured_at = date
+
+    clean = {
+        k: metrics.get(k)
+        for k in (
+            "weight_kg", "skeletal_muscle_kg", "body_fat_kg", "body_fat_pct",
+            "bmi", "bmr_kcal", "body_water_kg", "protein_kg", "mineral_kg",
+            "visceral_fat_level",
+        )
+        if metrics.get(k) is not None
+    }
+    inbody_id = save_inbody(
+        chat_id, user_id, measured_at, clean, json.dumps(metrics, ensure_ascii=False),
+    )
+    return {
+        "ok": True,
+        "intent": "inbody",
+        "message": f"인바디 저장 완료 ({measured_at})",
+        "inbody": {"id": inbody_id, "measured_at": measured_at, **clean},
+    }
+
+
+async def _app_process_workout_text(
+    chat_id: int, user_id: int, text: str, date: str, do_analyze: bool = False,
+) -> dict:
+    structured = await extract_from_text(text)
+    if "NO_WORKOUT_DATA" in structured:
+        return {
+            "ok": False,
+            "intent": "workout",
+            "error": "운동 기록을 인식할 수 없습니다.",
+        }
+
+    record_date = extract_date(structured) or date
+    structured_clean = strip_date_line(structured)
+    category = classify_workout(structured_clean)
+    existing = get_today_record(chat_id, user_id, record_date)
+    analysis = ""
+    kcal = None
+    merged = False
+
+    if existing:
+        merged_structured = (existing.get("structured_md") or "") + "\n\n" + structured_clean
+        rec_id = existing["id"]
+        if do_analyze:
+            weight = get_user_weight(user_id, chat_id)
+            height = get_user_height(user_id, chat_id)
+            history = get_recent_records(chat_id, user_id, 5)
+            from bot.utils import format_history_summary
+            analysis = await analyze_workout(
+                merged_structured, weight, format_history_summary(history), height_cm=height,
+            )
+            kcal = extract_kcal(analysis)
+            category = classify_workout(merged_structured)
+            merge_record(rec_id, merged_structured, analysis, kcal, category=category)
+        else:
+            merge_record(
+                rec_id, merged_structured,
+                existing.get("analysis") or "",
+                existing.get("estimated_kcal"),
+                category=classify_workout(merged_structured),
+            )
+            analysis = existing.get("analysis") or ""
+            kcal = existing.get("estimated_kcal")
+            category = classify_workout(merged_structured)
+        structured_out = merged_structured
+        merged = True
+    else:
+        if do_analyze:
+            weight = get_user_weight(user_id, chat_id)
+            height = get_user_height(user_id, chat_id)
+            history = get_recent_records(chat_id, user_id, 5)
+            from bot.utils import format_history_summary
+            analysis = await analyze_workout(
+                structured_clean, weight, format_history_summary(history), height_cm=height,
+            )
+            kcal = extract_kcal(analysis)
+            rec_id = save_record(
+                chat_id, user_id, text, structured_clean, analysis, kcal,
+                date=record_date, category=category,
+            )
+        else:
+            rec_id = save_record(
+                chat_id, user_id, text, structured_clean, "", None,
+                date=record_date, category=category,
+            )
+        structured_out = structured_clean
+
+    return {
+        "ok": True,
+        "intent": "workout",
+        "message": "운동 기록 저장 완료" + (" (병합)" if merged else ""),
+        "records": [{
+            "id": rec_id,
+            "date": record_date,
+            "category": category,
+            "structured_md": structured_out,
+            "analysis": analysis,
+            "estimated_kcal": kcal,
+            "merged": merged,
+        }],
+    }
+
+
+async def _app_process_meal_text(
+    chat_id: int, user_id: int, text: str, date: str, default_meal_type: str,
+) -> dict:
+    weight = get_user_weight(user_id, chat_id)
+    height = get_user_height(user_id, chat_id)
+    ctx_lines = []
+    if weight:
+        ctx_lines.append(f"사용자 체중: {weight}kg")
+    if height:
+        ctx_lines.append(f"키: {height}cm")
+    user_ctx = "\n".join(ctx_lines)
+
+    data = await extract_meal_from_text(
+        text, default_meal_type, user_ctx, lock_to_default=False,
+    )
+    saved = _save_meals_from_extraction_app(
+        chat_id, user_id, date, data, text, default_meal_type,
+    )
+    if not saved:
+        return {
+            "ok": False,
+            "intent": "meal",
+            "error": "식사로 인식했지만 음식 구체화에 실패했습니다.",
+        }
+    return {
+        "ok": True,
+        "intent": "meal",
+        "message": f"식단 {len(saved)}건 저장 완료",
+        "meals": saved,
+    }
+
+
+@app.post("/api/app/upload")
+async def api_app_upload(
+    request: Request,
+    photo: UploadFile = File(...),
+    user_id: int = Form(...),
+    caption: str = Form(""),
+):
+    """Multipart photo upload for the native app.
+
+    Classifies photo type (workout/meal/inbody) via analyzer, then reuses the
+    same extraction/save path as the Telegram bot handlers.
+    """
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    image_bytes = await photo.read()
+    if not image_bytes:
+        return JSONResponse({"error": "빈 이미지입니다"}, status_code=400)
+    # Soft cap ~12MB to avoid runaway memory
+    if len(image_bytes) > 12 * 1024 * 1024:
+        return JSONResponse({"error": "이미지가 너무 큽니다 (최대 12MB)"}, status_code=400)
+
+    chat_id = _resolve_app_chat_id(user_id)
+    _ensure_app_user(user_id, chat_id)
+    date = _app_today_str()
+    caption = (caption or "").strip()
+
+    try:
+        intent_data = await classify_intent_from_image(image_bytes, hint=caption)
+    except Exception as e:
+        logger.error(f"App upload intent error: {e}")
+        intent_data = {"intent": "workout", "confidence": 0.3}
+
+    intent = (intent_data.get("intent") or "workout").lower()
+    confidence = intent_data.get("confidence")
+    reason = intent_data.get("reason_md", "")
+
+    try:
+        if intent == "inbody":
+            result = await _app_process_inbody_image(
+                chat_id, user_id, image_bytes, caption, date,
+            )
+        elif intent == "meal":
+            meal_type = (intent_data.get("meal_type") or "").lower() or _meal_type_by_time()
+            if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+                meal_type = _meal_type_by_time()
+            result = await _app_process_meal_image(
+                chat_id, user_id, image_bytes, caption, date, meal_type,
+            )
+        elif intent == "unrelated":
+            msg = "운동·식단·인바디 어느 것에도 해당되지 않는 사진으로 보입니다."
+            if reason:
+                msg += f" ({reason})"
+            result = {"ok": False, "intent": "unrelated", "error": msg}
+        else:
+            result = await _app_process_workout_image(
+                chat_id, user_id, image_bytes, caption, date,
+            )
+    except Exception as e:
+        logger.error(f"App upload process error (intent={intent}): {e}")
+        return JSONResponse(
+            {"ok": False, "error": f"분석 중 오류: {e}", "intent": intent},
+            status_code=500,
+        )
+
+    result["confidence"] = confidence
+    result["reason_md"] = reason
+    status = 200 if result.get("ok") else 422
+    return JSONResponse(result, status_code=status)
+
+
+@app.post("/api/app/record")
+async def api_app_record(request: Request):
+    """Text workout/meal record for the native app.
+
+    Body JSON: { "user_id": int, "text": str, "analyze": bool? }
+    Reuses classify_intent_from_text + extract_from_text / extract_meal_from_text.
+    """
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON body required"}, status_code=400)
+
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "user_id required"}, status_code=400)
+
+    text = (body.get("text") or "").strip()
+    if not text:
+        return JSONResponse({"error": "text required"}, status_code=400)
+    if len(text) > 8000:
+        return JSONResponse({"error": "text too long"}, status_code=400)
+
+    do_analyze = bool(body.get("analyze", False))
+    chat_id = _resolve_app_chat_id(user_id)
+    _ensure_app_user(user_id, chat_id)
+    date = _app_today_str()
+
+    try:
+        intent_data = await classify_intent_from_text(text)
+    except Exception as e:
+        logger.error(f"App record intent error: {e}")
+        intent_data = {"intent": "workout", "confidence": 0.3}
+
+    intent = (intent_data.get("intent") or "workout").lower()
+    confidence = intent_data.get("confidence")
+    reason = intent_data.get("reason_md", "")
+
+    try:
+        if intent == "meal":
+            meal_type = (intent_data.get("meal_type") or "").lower() or _meal_type_by_time()
+            if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+                meal_type = _meal_type_by_time()
+            result = await _app_process_meal_text(
+                chat_id, user_id, text, date, meal_type,
+            )
+        elif intent == "inbody":
+            result = {
+                "ok": False,
+                "intent": "inbody",
+                "error": "인바디 수치는 사진으로 보내주세요. (텍스트 입력 미지원)",
+            }
+        elif intent == "unrelated":
+            msg = "운동·식단·인바디 어느 것에도 해당되지 않아 보입니다."
+            if reason:
+                msg += f" ({reason})"
+            result = {"ok": False, "intent": "unrelated", "error": msg}
+        else:
+            result = await _app_process_workout_text(
+                chat_id, user_id, text, date, do_analyze=do_analyze,
+            )
+    except Exception as e:
+        logger.error(f"App record process error (intent={intent}): {e}")
+        return JSONResponse(
+            {"ok": False, "error": f"분석 중 오류: {e}", "intent": intent},
+            status_code=500,
+        )
+
+    result["confidence"] = confidence
+    result["reason_md"] = reason
+    status = 200 if result.get("ok") else 422
+    return JSONResponse(result, status_code=status)
+
+
+@app.post("/api/app/plan")
+async def api_app_plan(request: Request):
+    """Generate (or return cached) daily plan via generate_daily_plan.
+
+    Body JSON: { "user_id": int, "refresh": bool? }
+    """
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON body required"}, status_code=400)
+
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "user_id required"}, status_code=400)
+
+    refresh = bool(body.get("refresh", False))
+    date = _app_today_str()
+    chat_id = _resolve_app_chat_id(user_id)
+    _ensure_app_user(user_id, chat_id)
+
+    cached = get_daily_plan(user_id, date)
+    if cached and not refresh:
+        payload = _serialize_plan(cached)
+        payload["ok"] = True
+        payload["cached"] = True
+        return JSONResponse(payload)
+
+    if not list_goals(user_id):
+        return JSONResponse({
+            "ok": False,
+            "error": "활성 목표가 없어 일일 계획을 생성할 수 없습니다. 웹/텔레그램에서 목표를 먼저 등록하세요.",
+        }, status_code=422)
+
+    try:
+        kcal_detail = compute_target_kcal_detailed(user_id, date)
+        targets_block = []
+        if kcal_detail.get("target_kcal"):
+            targets_block.append("## 사전 계산된 목표 (이 수치를 따르세요)")
+            targets_block.append(f"- 일일 섭취 목표: **{int(kcal_detail['target_kcal'])} kcal**")
+            m = kcal_detail.get("macros") or {}
+            if m:
+                targets_block.append(
+                    f"- 매크로 ({m.get('direction', 'maintain')}): "
+                    f"단백 {m['protein_g']}g ({m['protein_pct']}%) · "
+                    f"탄수 {m['carbs_g']}g ({m['carbs_pct']}%) · "
+                    f"지방 {m['fat_g']}g ({m['fat_pct']}%)"
+                )
+            if kcal_detail.get("bmr"):
+                targets_block.append(
+                    f"- BMR: {int(kcal_detail['bmr'])} kcal · TDEE: {int(kcal_detail['tdee'])} kcal"
+                )
+            if kcal_detail.get("days_left"):
+                targets_block.append(f"- 목표일까지 D-{kcal_detail['days_left']}")
+        ctx_md = "\n".join(targets_block) + "\n\n" + _build_plan_context(user_id, chat_id, date)
+
+        data = await generate_daily_plan(ctx_md)
+        if not data:
+            return JSONResponse({"ok": False, "error": "계획 생성 실패"}, status_code=500)
+
+        meals_dict = data.get("meals") or {}
+        breakfast_html = _render_meal_html(meals_dict.get("breakfast"))
+        lunch_html = _render_meal_html(meals_dict.get("lunch"))
+        dinner_html = _render_meal_html(meals_dict.get("dinner"))
+
+        target_intake = data.get("target_kcal_intake") or kcal_detail.get("target_kcal")
+        if not data.get("macros") and kcal_detail.get("macros"):
+            data["macros"] = kcal_detail["macros"]
+
+        upsert_daily_plan(
+            user_id, chat_id, date,
+            target_intake,
+            data.get("target_kcal_burn"),
+            breakfast_html,
+            lunch_html,
+            dinner_html,
+            json.dumps(data, ensure_ascii=False),
+        )
+
+        plan = get_daily_plan(user_id, date)
+        payload = _serialize_plan(plan)
+        payload["ok"] = True
+        payload["cached"] = False
+        return JSONResponse(payload)
+    except Exception as e:
+        logger.error(f"App plan generation error: {e}")
+        return JSONResponse({"ok": False, "error": f"계획 생성 중 오류: {e}"}, status_code=500)
+
+
+@app.post("/api/app/daily-summary")
+async def api_app_daily_summary(request: Request):
+    """Generate (or return cached) end-of-day summary via generate_daily_summary.
+
+    Body JSON: { "user_id": int, "refresh": bool? }
+    Named /daily-summary to avoid clashing with GET /api/app/summary.
+    """
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"error": "JSON body required"}, status_code=400)
+
+    try:
+        user_id = int(body.get("user_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"error": "user_id required"}, status_code=400)
+
+    refresh = bool(body.get("refresh", False))
+    date = _app_today_str()
+    chat_id = _resolve_app_chat_id(user_id)
+    _ensure_app_user(user_id, chat_id)
+
+    cached = get_daily_summary(user_id, date)
+    if cached and not refresh:
+        payload = _serialize_daily_summary(cached)
+        payload["ok"] = True
+        payload["cached"] = True
+        return JSONResponse(payload)
+
+    try:
+        ctx_md = _build_plan_context(user_id, chat_id, date)
+        data = await generate_daily_summary(ctx_md)
+        if not data:
+            return JSONResponse({"ok": False, "error": "요약 생성 실패"}, status_code=500)
+
+        summary_md = data.get("summary_md", "")
+        assessment = data.get("goal_assessment_md", "")
+        upsert_daily_summary(user_id, chat_id, date, summary_md, assessment)
+
+        payload = {
+            "ok": True,
+            "cached": False,
+            "date": date,
+            "summary_md": summary_md,
+            "goal_assessment_md": assessment,
+        }
+        return JSONResponse(payload)
+    except Exception as e:
+        logger.error(f"App daily summary error: {e}")
+        return JSONResponse({"ok": False, "error": f"요약 생성 중 오류: {e}"}, status_code=500)

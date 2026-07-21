@@ -24,6 +24,8 @@ targets:
           UIColorName: AccentColor
         UIApplicationSceneManifest:
           UIApplicationSupportsMultipleScenes: false
+        NSCameraUsageDescription: 운동·식단·인바디 사진을 촬영해 기록합니다.
+        NSPhotoLibraryUsageDescription: 앨범에서 운동·식단·인바디 사진을 선택해 기록합니다.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ohmypt.app

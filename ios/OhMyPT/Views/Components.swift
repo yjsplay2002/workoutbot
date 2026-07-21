@@ -121,6 +121,7 @@ extension View {
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
             }
+            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
     }
 }
 
