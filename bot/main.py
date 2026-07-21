@@ -57,7 +57,9 @@ def run_bot() -> None:
 
     init_db()
 
-    app = ApplicationBuilder().token(token).build()
+    # concurrent_updates: process updates in parallel so a long LLM analysis
+    # doesn't block the next incoming message. Bounded to avoid runaway tasks.
+    app = ApplicationBuilder().token(token).concurrent_updates(8).build()
 
     # Command handlers
     app.add_handler(CommandHandler("start", cmd_start))
