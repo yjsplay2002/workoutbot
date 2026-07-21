@@ -3,6 +3,7 @@ tzdata
 openai>=1.50.0
 python-dotenv
 fastapi
+python-multipart
 uvicorn[standard]
 jinja2
 itsdangerous
