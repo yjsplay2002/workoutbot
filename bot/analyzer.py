@@ -1,10 +1,13 @@
 import base64
 import json
+import logging
 import os
 import re
 from typing import Optional
 
 from openai import AsyncOpenAI
+
+logger = logging.getLogger(__name__)
 
 client: Optional[AsyncOpenAI] = None
 
@@ -120,9 +123,19 @@ async def extract_from_image(image_bytes: bytes, user_caption: str = "") -> str:
             {"role": "system", "content": EXTRACT_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        max_completion_tokens=1500,
+        # Reasoning models spend completion budget on hidden reasoning tokens
+        # before emitting content — a low cap can yield empty/truncated output.
+        max_completion_tokens=6000,
     )
-    return resp.choices[0].message.content or ""
+    content = resp.choices[0].message.content or ""
+    choice = resp.choices[0]
+    usage = getattr(resp, "usage", None)
+    logger.info(
+        "extract_from_image model=%s finish=%s content_len=%d usage=%s preview=%r",
+        resp.model, choice.finish_reason, len(content),
+        usage.model_dump() if usage else None, content[:200],
+    )
+    return content
 
 
 async def extract_from_text(text: str) -> str:
