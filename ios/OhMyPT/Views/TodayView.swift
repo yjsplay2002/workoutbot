@@ -24,6 +24,7 @@ struct TodayView: View {
                         )
                         CaloriesCard(today: summary.today)
                         MacroCard(today: summary.today)
+                        CreatineGuideCard()
                         DeficitCard(deficit: summary.deficit, goal: summary.primaryGoal)
                         PlanCard(
                             plan: viewModel.plan,
@@ -249,6 +250,72 @@ private struct MacroRow: View {
             ProgressView(value: progress)
                 .tint(tint)
         }
+    }
+}
+
+private struct CreatineGuideCard: View {
+    @State private var isExpanded = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            DisclosureGroup(isExpanded: $isExpanded) {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("타이밍보다 **매일 빠짐없이**가 압도적으로 중요 — 근육에 쌓이는 저장형 보충제. 총 6g은 체중 77kg에 적절(5~7g 범위), 3g 분할로 위장 부담 없음. 로딩 없이 약 3~4주면 포화.")
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+
+                    doseRow(order: "1회차 3g", time: "운동 직후 점심 (13시)",
+                            reason: "탄수+단백질과 함께 → 인슐린이 근육 흡수 도움")
+                    doseRow(order: "2회차 3g", time: "저녁 식사 (19시)",
+                            reason: "식사와 함께 = 흡수↑ + 위장 편함 + 까먹지 않음")
+
+                    VStack(alignment: .leading, spacing: 6) {
+                        tipLine("비운동일에도 동일하게 6g — 크레아틴에 휴무일 없음")
+                        tipLine("물 하루 2L+ (수분을 근육으로 끌어감)")
+                        tipLine("카페인과 상쇄 없음 — Hot6 타이밍 겹쳐도 무관")
+                        tipLine("먹기 직전에 타서 바로 마시기")
+                        tipLine("첫 1~2주 체중 +0.5~1kg은 수분 — 숫자에 흔들리지 말 것")
+                    }
+
+                    Text("한 줄: 점심·저녁 식사에 각각 붙이고, 쉬는 날 포함 매일.")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(.blue)
+                }
+                .padding(.top, 8)
+            } label: {
+                Label("크레아틴 3g × 2회 (점심·저녁)", systemImage: "pills.fill")
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+            }
+        }
+        .cardStyle()
+    }
+
+    private func doseRow(order: String, time: String, reason: String) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 8) {
+                Text(order)
+                    .font(.subheadline.weight(.bold))
+                Text(time)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.green)
+            }
+            Text(reason)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(10)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func tipLine(_ text: String) -> some View {
+        HStack(alignment: .top, spacing: 6) {
+            Text("•")
+            Text(text)
+        }
+        .font(.caption)
+        .foregroundStyle(.secondary)
     }
 }
 

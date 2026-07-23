@@ -375,6 +375,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
             else:
                 g["progress_pct"] = None
         today_plan = get_daily_plan(user_id, today_str)
+        recomp_dday = (date(2026, 8, 10) - _kst_today()).days
     else:
         active_goals = []
         latest_inbody = None
@@ -384,6 +385,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         today_exercise_kcal = 0
         today_meal_kcal = 0
         today_p = today_c = today_f = 0
+        recomp_dday = None
 
     cal_data = _build_calendar_data(cal_records, cal_year, cal_month)
     # Calendar grid: weeks as list of days (Mon=0)
@@ -439,6 +441,7 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
         "today_p": today_p,
         "today_c": today_c,
         "today_f": today_f,
+        "recomp_dday": recomp_dday,
     })
 
 

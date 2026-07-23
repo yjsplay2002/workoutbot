@@ -224,6 +224,228 @@
 </div>
 {% endif %}
 
+{# ═══════════ 리컴포지션 플랜 (2026.08.10 인바디 재측정) ═══════════ #}
+<h2>🧭 리컴포지션 플랜
+  {% if recomp_dday is not none %}
+    <span style="font-size:.75em;color:var(--accent2);font-weight:600">
+      {% if recomp_dday > 0 %}인바디 재측정 D-{{ recomp_dday }}{% elif recomp_dday == 0 %}오늘 인바디 재측정!{% else %}측정일 경과{% endif %}
+    </span>
+  {% endif %}
+</h2>
+<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
+
+  {# ── 오늘 식단 등급 (실시간) ── #}
+  {% set rk = today_meal_kcal|int %}
+  {% set rp = today_p|default(0)|int %}
+  {% set kcal_ok = rk >= 1500 and rk <= 1700 %}
+  {% if rp >= 140 and rk <= 1700 %}{% set grade, gcolor, gdesc = 'A', 'var(--green)', '칼로리 + 단백질 140g+ 완벽' %}
+  {% elif rp >= 110 %}{% set grade, gcolor, gdesc = 'B', 'var(--orange)', '단백질 110~140g — 저녁·간식으로 140g 채우기' %}
+  {% elif rp >= 70 %}{% set grade, gcolor, gdesc = 'C', 'var(--red)', '단백질 110g 미만 페이스 — 근손실 위험' %}
+  {% else %}{% set grade, gcolor, gdesc = 'D', 'var(--red)', '단백질 70g 미만 — 취침 전 셰이크/그릭요거트 긴급 보충!' %}
+  {% endif %}
+  {% set p_remaining = 145 - rp %}
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-bottom:16px">
+    <div style="width:64px;height:64px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:2em;font-weight:800;color:{{ gcolor }};border:2px solid {{ gcolor }}">{{ grade }}</div>
+    <div>
+      <div style="font-weight:700">오늘 식단 등급 <span style="font-size:.75em;color:var(--text2);font-weight:400">(실시간 페이스)</span></div>
+      <div style="font-size:.85em;color:var(--text2)">{{ gdesc }}</div>
+      <div style="font-size:.85em;margin-top:2px">
+        단백질 <b style="color:#ff7675">{{ rp }}g</b> / 145g
+        {% if p_remaining > 0 %}<span style="color:var(--text2)">— {{ p_remaining }}g 남음 (손바닥 단백질 {{ ((p_remaining / 30) + 0.99)|int }}회분)</span>
+        {% else %}<span style="color:var(--green)">✅ 목표 달성</span>{% endif %}
+      </div>
+    </div>
+  </div>
+  {# 단백질 진행 바 #}
+  {% set ppct = ((rp / 145) * 100)|int %}
+  <div style="background:var(--card2);border-radius:4px;height:8px;overflow:hidden;margin-bottom:16px">
+    <div style="height:100%;width:{{ ppct if ppct <= 100 else 100 }}%;background:{% if rp >= 140 %}var(--green){% elif rp >= 110 %}var(--orange){% else %}#ff7675{% endif %};transition:width .3s"></div>
+  </div>
+
+  {# ── 8/10 목표 vs 현재 ── #}
+  <div style="font-size:.9em;font-weight:700;margin-bottom:8px">🎯 8/10 인바디 목표 <span style="font-size:.85em;color:var(--text2);font-weight:400">(기준: 5/7 측정)</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">체지방</div>
+      <div style="font-size:1.15em;font-weight:700">20.3 <span style="color:var(--green)">→ 18.3~18.8</span> <span style="font-size:.6em">kg</span></div>
+      <div style="font-size:.7em;color:var(--text2)">-1.5~2kg (걷기 추가 시 -2)</div>
+    </div>
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">골격근</div>
+      <div style="font-size:1.15em;font-weight:700">32.1 <span style="color:var(--green)">→ 32.4~32.6</span> <span style="font-size:.6em">kg</span></div>
+      <div style="font-size:.7em;color:var(--text2)">크레아틴 포화 + 중량 유지</div>
+    </div>
+    <div style="background:var(--card2);padding:12px;border-radius:8px">
+      <div style="font-size:.78em;color:var(--text2)">체중</div>
+      <div style="font-size:1.15em;font-weight:700">77.3 <span style="color:var(--accent2)">→ ~76</span> <span style="font-size:.6em">kg</span></div>
+      <div style="font-size:.7em;color:var(--text2)">크레아틴 수분 +0.5~1kg 정상</div>
+    </div>
+  </div>
+  <div style="font-size:.75em;color:var(--text2);margin-bottom:16px;background:var(--card2);padding:8px 12px;border-radius:6px">
+    📏 측정 조건 통일: <b>오전 11시대 · 공복 · 전날 과음/과식 없이</b>
+  </div>
+
+  {# ── 핵심 룰 칩 ── #}
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;font-size:.8em">
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">💊 크레아틴 <b>3g×2</b> (점심·저녁) · 쉬는 날 포함 매일</span>
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">⚡ Hot6 <b>운동 전 11:20</b> (점심 후 ❌)</span>
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">☕ 카페인 <b>14시 이후 금지</b></span>
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">🚶 걷기 <b>30~40분/일</b> (+200 kcal)</span>
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">😴 수면 6h 미만 주간 → 결손 <b>-300</b>으로 축소</span>
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">🏋️ 순서: <b>근력 → 유산소</b> (역순 ❌)</span>
+    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">🎯 본세트 <b>RIR 1~3</b> · 근육통은 지표 아님</span>
+  </div>
+
+  {# ── 체크리스트 (localStorage 저장) ── #}
+  <details style="margin-bottom:12px">
+    <summary style="cursor:pointer;font-size:.9em;font-weight:700">✅ 8/10 체크리스트</summary>
+    <div id="recomp-checklist" style="margin-top:10px;display:grid;gap:6px;font-size:.88em">
+      {% for item in [
+        '크레아틴 3g×2회 매일 (점심·저녁, 쉬는 날 포함)',
+        '하루 걷기 30~40분 (결손 -850 확보)',
+        '단백질 145g 매일 사수',
+        '하체데이 신설 · 주요 리프트 중량 유지 (RDL 80×10)',
+        'Hot6 운동 전으로 이동 · 14시 이후 카페인 금지',
+        '수면 6시간+ · 못 잔 주는 결손 축소',
+        '인바디 측정 조건 통일 (오전 11시 공복)',
+      ] %}
+      <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;background:var(--card2);padding:8px 12px;border-radius:6px">
+        <input type="checkbox" data-ck="recomp-{{ loop.index }}" style="margin-top:3px;accent-color:var(--accent)"> <span>{{ item }}</span>
+      </label>
+      {% endfor %}
+    </div>
+  </details>
+
+  {# ── 식사 타임라인 ── #}
+  <details style="margin-bottom:12px">
+    <summary style="cursor:pointer;font-size:.9em;font-weight:700">🍽️ 하루 식사 구조 (1,600 kcal / 단백질 145g)</summary>
+    <div style="overflow-x:auto;margin-top:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:.85em;min-width:480px">
+        <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">시간</th><th style="padding:6px 8px">내용</th><th style="padding:6px 8px;text-align:right">kcal / 단백질</th></tr></thead>
+        <tbody>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">~11:20</td><td style="padding:6px 8px">블랙커피 + 웨이 반 스쿱 (또는 Hot6 Zero)</td><td style="padding:6px 8px;text-align:right">50 / 12g</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">12:00</td><td style="padding:6px 8px">운동 1시간 (근력 → 유산소)</td><td style="padding:6px 8px;text-align:right;color:var(--text2)">—</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">13:00</td><td style="padding:6px 8px"><b>점심 (최대 끼니)</b> 단백질 60~70g + 탄수 몰빵 · 크레아틴 3g</td><td style="padding:6px 8px;text-align:right">850 / 70g</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">19:00</td><td style="padding:6px 8px">저녁: 단백질 위주 · 탄수 최소 (운동일만 소량) · 크레아틴 3g</td><td style="padding:6px 8px;text-align:right">700 / 65g</td></tr>
+          <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px 8px">합계</td><td style="padding:6px 8px"></td><td style="padding:6px 8px;text-align:right">1,600 / 145~150g</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:.78em;color:var(--text2);margin-top:8px;line-height:1.7">
+      <b>점심 추천</b>: 덤벨푸드 샐러드 파스타 + 닭가슴살 추가 · 닭가슴살 200g + 잡곡밥 120g · 연어 180g + 고구마 150g<br>
+      <b>저녁 추천</b>: 구운 치킨 반마리 (순살구이, 껍질 제거) · 두부 200g + 계란 2개 + 닭가슴살 100g · 돼지 안심 200g + 쌈채소<br>
+      <b>탄수</b>: 운동일 180~200g / 비운동일 120~150g — 운동 직후 점심에 몰아주기 · <b>지방</b> 50~55g
+    </div>
+  </details>
+
+  {# ── 주간 운동 배치 ── #}
+  <details>
+    <summary style="cursor:pointer;font-size:.9em;font-weight:700">🏋️ 주 5일 운동 배치</summary>
+    <div style="overflow-x:auto;margin-top:10px">
+      <table style="width:100%;border-collapse:collapse;font-size:.85em;min-width:480px">
+        <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">요일</th><th style="padding:6px 8px">구성</th><th style="padding:6px 8px">내용</th></tr></thead>
+        <tbody>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">1일차 (60분)</td><td style="padding:6px 8px;white-space:nowrap">근력 온리</td><td style="padding:6px 8px"><b style="color:var(--accent2)">하체 메인</b>: 스쿼트/레그프레스, RDL, 레그컬, 카프, 복근</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">2일차 (30+20)</td><td style="padding:6px 8px;white-space:nowrap">근력+유산소</td><td style="padding:6px 8px">밀기: ISO chest 2종, 숄더프레스, 삼두 → Zone 2</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">3일차 (30+20)</td><td style="padding:6px 8px;white-space:nowrap">근력+유산소</td><td style="padding:6px 8px">당기기: 랫풀, 케이블로우, 로프풀, 이두 → Zone 2</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">4일차 (60분)</td><td style="padding:6px 8px;white-space:nowrap">근력 온리</td><td style="padding:6px 8px"><b style="color:var(--accent2)">전신 컴파운드</b>: RDL/스쿼트, 로우, 체스트, 풀오버</td></tr>
+          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">5일차 (30+20)</td><td style="padding:6px 8px;white-space:nowrap">근력+유산소</td><td style="padding:6px 8px">하체 보조: 레그프레스, 런지, 사이드레터럴 → 인터벌</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="font-size:.78em;color:var(--text2);margin-top:8px;line-height:1.7">
+      컷 중 목표는 증량이 아닌 <b>중량 유지</b> (탑세트 숫자 사수) · 유산소는 Zone 2 (심박 120~140), 주 1회만 인터벌 · 하체가 최대 구멍 — 골격근 +0.5kg은 하체에서 나옴
+    </div>
+  </details>
+
+  {# ── 크레아틴 가이드 ── #}
+  <details style="margin-top:12px">
+    <summary style="cursor:pointer;font-size:.9em;font-weight:700">💊 크레아틴 가이드 — 3g × 2회 = 6g/일</summary>
+    <div style="margin-top:10px;font-size:.85em;line-height:1.7">
+      <div style="background:var(--card2);padding:10px 14px;border-radius:8px;margin-bottom:10px;border-left:3px solid var(--accent)">
+        타이밍보다 <b style="color:var(--accent2)">"매일 빠짐없이"</b>가 압도적으로 중요 — 근육에 쌓이는 저장형 보충제라 혈중 타이밍 게임이 아님.
+        총 6g은 체중 77kg에 딱 적절 (5~7g 권장 범위). 3g 분할로 위장 부담(더부룩함·묽은 변) 거의 없음.
+        로딩 없이 <b>약 3~4주면 포화</b> — 8/10까지 80~90% 도달 (더 빨리 원하면 첫 5일만 3g×4회 임시 로딩).
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.95em;min-width:420px">
+          <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">회차</th><th style="padding:6px 8px">시간</th><th style="padding:6px 8px">이유</th></tr></thead>
+          <tbody>
+            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap;font-weight:700">1회차 3g</td><td style="padding:6px 8px;white-space:nowrap"><b style="color:var(--green)">운동 직후 점심 (13시)</b></td><td style="padding:6px 8px;color:var(--text2)">탄수+단백질과 함께 → 인슐린이 근육 흡수 도움. 연구상 유일하게 근소한 우위 확인된 타이밍</td></tr>
+            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap;font-weight:700">2회차 3g</td><td style="padding:6px 8px;white-space:nowrap"><b style="color:var(--green)">저녁 식사 (19시)</b></td><td style="padding:6px 8px;color:var(--text2)">식사와 함께 = 흡수↑ + 위장 편함 + 까먹지 않음</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:.92em;color:var(--text2);margin-top:6px">
+        간격은 아무래도 상관없음 — <b>"점심 1포, 저녁 1포" 식사에 묶는 것</b>이 지속률을 결정
+      </div>
+      <ul style="margin:10px 0 0 18px;font-size:.92em;color:var(--text2)">
+        <li><b>비운동일에도 동일하게 6g</b> — 쉬는 날 끊으면 포화 수준 하락. 크레아틴에 휴무일 없음</li>
+        <li>물 하루 <b>2L+</b> — 수분을 근육으로 끌어가므로 부족하면 갈증·경련 느낌</li>
+        <li>카페인과 같이 먹어도 효과 상쇄 없음 (옛날 속설) — Hot6 타이밍 겹쳐도 무관</li>
+        <li>뜨거운 물에 오래 타두면 분해 — <b>먹기 직전에 타서 바로</b> 마시기</li>
+        <li>첫 1~2주 체중 <b>+0.5~1kg은 수분</b> — 인바디 체중 숫자에 흔들리지 말 것</li>
+      </ul>
+      <div style="margin-top:10px;font-weight:700;color:var(--accent2)">한 줄: 점심(운동 직후)·저녁 식사에 각각 붙이고, 쉬는 날 포함 매일 — 타이밍 고민 끝</div>
+    </div>
+  </details>
+
+  {# ── 강도 가이드: RIR > 근육통 ── #}
+  <details style="margin-top:12px">
+    <summary style="cursor:pointer;font-size:.9em;font-weight:700">💪 강도 가이드 — 근육통이 아니라 RIR로 판단</summary>
+    <div style="margin-top:10px;font-size:.85em;line-height:1.7">
+      <div style="background:var(--card2);padding:10px 14px;border-radius:8px;margin-bottom:10px;border-left:3px solid var(--accent)">
+        근육통(DOMS)은 자극의 질이 아니라 <b>"낯섦"의 지표</b>. 같은 루틴으로 꾸준히 성장하는 사람은 근육통 거의 없음 — "안 아프면 운동 안 됐다"는 미신.
+        진짜 지표는 <b style="color:var(--accent2)">세트 끝냈을 때 몇 개 더 가능했는가 (RIR)</b> + <b>기록 유지</b> (RDL 80×10, 랫풀 40×8이 18일간 안 떨어지면 강도 충분).
+      </div>
+      <div style="overflow-x:auto">
+        <table style="width:100%;border-collapse:collapse;font-size:.95em;min-width:400px">
+          <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">RIR (남은 개수)</th><th style="padding:6px 8px">의미</th><th style="padding:6px 8px">평가</th></tr></thead>
+          <tbody>
+            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">4~5개+</td><td style="padding:6px 8px">워밍업 수준</td><td style="padding:6px 8px;color:var(--text2)">성장 자극 거의 없음</td></tr>
+            <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px 8px;color:var(--green)">1~3개</td><td style="padding:6px 8px">유효 강도</td><td style="padding:6px 8px;color:var(--green)">✅ 스위트스팟 — 매 본세트 목표</td></tr>
+            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">0개 (완전 실패)</td><td style="padding:6px 8px">한계</td><td style="padding:6px 8px;color:var(--orange)">가끔 OK, 매 세트는 회복 비용 과다</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div style="font-size:.92em;color:var(--text2);margin-top:6px">
+        "10개 목표인데 12~13개 가능했겠다" → 무게 올리기 · "11개째는 못 들었겠다" → 정확한 강도
+      </div>
+
+      <div style="margin-top:12px;font-weight:700">근육통 자가 체크 (10점 만점)</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:6px">
+        <div style="background:var(--card2);padding:10px 12px;border-radius:8px">
+          <div style="color:var(--green);font-weight:700">3~4점 — 정상</div>
+          <div style="font-size:.9em;color:var(--text2)">만지면 뻐근, 계단 내려갈 때 느껴지는 정도</div>
+        </div>
+        <div style="background:var(--card2);padding:10px 12px;border-radius:8px">
+          <div style="color:var(--red);font-weight:700">7점+ (잠에 지장) — 경고</div>
+          <div style="font-size:.9em;color:var(--text2)">회복 능력 초과 신호 → 볼륨 20~30% 축소</div>
+        </div>
+      </div>
+      <div style="background:var(--card2);padding:10px 14px;border-radius:8px;margin-top:10px;font-size:.92em;border-left:3px solid var(--red)">
+        ⚠️ 잠 깨우는 근육통 = 성실함 아니라 <b>과용량</b>. 깊은 수면↓ → 성장호르몬↓ → 회복 자원 깎임 → 다음날 코르티솔↑ 식욕 붕괴 → 1,600 kcal 못 지킴 → 중량 하락 → 근손실. 결손 -640 상태는 회복 자원이 평소보다 적어 평소 볼륨도 과할 수 있음.
+      </div>
+
+      <ul style="margin:10px 0 0 18px;font-size:.92em;color:var(--text2)">
+        <li>하체데이 첫 2주는 예외적으로 아픔 — 첫 주 종목당 본세트 <b>2개 · RIR 3</b>으로 진입, 2~3주차부터 증량</li>
+        <li>근육통 심한 날 = 쉬는 날 아님 → <b>다른 부위 + Zone 2 걷기</b> (혈류가 회복 도움)</li>
+        <li>격한 세션 후 취침 전 <b>카제인/그릭요거트</b> — 야간 회복 지원</li>
+      </ul>
+      <div style="margin-top:10px;font-weight:700;color:var(--accent2)">한 줄: 유지할 건 "이틀 뒤의 고통"이 아니라 "매 본세트 1~3개 남기는 강도 + 기록 유지"</div>
+    </div>
+  </details>
+</div>
+<script>
+(function(){
+  document.querySelectorAll('#recomp-checklist input[data-ck]').forEach(function(cb){
+    var k = 'ck-' + cb.dataset.ck;
+    cb.checked = localStorage.getItem(k) === '1';
+    cb.addEventListener('change', function(){ localStorage.setItem(k, cb.checked ? '1' : '0'); });
+  });
+})();
+</script>
+
 {# 최근 인바디 #}
 {% if latest_inbody %}
 <h2>📏 최근 인바디 <a href="/inbody" style="font-size:.7em;color:var(--text2);font-weight:400">전체 보기</a></h2>
