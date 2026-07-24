@@ -1838,3 +1838,200 @@ async def api_app_daily_summary(request: Request):
     except Exception as e:
         logger.error(f"App daily summary error: {e}")
         return JSONResponse({"ok": False, "error": f"요약 생성 중 오류: {e}"}, status_code=500)
+
+
+# ── v2: Agent chat API ───────────────────────────────────────────────────
+
+from bot import inbody_api as _inbody_api
+from bot.agent import run_agent_turn
+from bot.database import get_chat_history, save_chat_message, save_inbody as _save_inbody_v2
+
+
+def _photo_result_to_cards(result: dict) -> list[dict]:
+    """Convert /api/app/upload-style pipeline results into chat cards."""
+    cards: list[dict] = []
+    intent = result.get("intent")
+    if intent == "meal":
+        for meal in result.get("meals") or []:
+            type_ko = {"breakfast": "아침", "lunch": "점심", "dinner": "저녁", "snack": "간식"}.get(
+                meal.get("meal_type"), meal.get("meal_type", ""))
+            kcal = meal.get("estimated_kcal")
+            cards.append({
+                "kind": "meal",
+                "ref_id": meal.get("id"),
+                "title": f"식사 기록 · {type_ko}",
+                "rows": [
+                    ["내용", (meal.get("structured_md") or "")[:120]],
+                    ["칼로리", f"{kcal:,.0f} kcal" if kcal else "—"],
+                ],
+                "meta": meal.get("date") or "",
+            })
+    elif intent == "inbody":
+        ib = result.get("inbody") or {}
+        def _f(v, unit="", d=1):
+            try:
+                return f"{float(v):,.{d}f}{unit}"
+            except (TypeError, ValueError):
+                return "—"
+        cards.append({
+            "kind": "inbody",
+            "ref_id": ib.get("id"),
+            "title": "인바디 기록",
+            "rows": [
+                ["측정일", str(ib.get("measured_at") or "")[:10]],
+                ["체중 / 골격근 / 체지방률",
+                 f"{_f(ib.get('weight_kg'))} / {_f(ib.get('skeletal_muscle_kg'))} / {_f(ib.get('body_fat_pct'), '%')}"],
+                ["기초대사량", _f(ib.get("bmr_kcal"), " kcal", 0)],
+            ],
+            "meta": str(ib.get("measured_at") or "")[:10],
+        })
+    elif intent == "workout":
+        for rec in result.get("records") or []:
+            cards.append({
+                "kind": "workout",
+                "ref_id": rec.get("id"),
+                "title": f"운동 기록 · {rec.get('category') or '기타'}",
+                "rows": [["내용", (rec.get("structured_md") or "")[:160]]],
+                "meta": rec.get("date") or "",
+            })
+    return cards
+
+
+@app.post("/api/v2/chat")
+async def api_v2_chat(
+    request: Request,
+    photo: Optional[UploadFile] = File(None),
+    user_id: Optional[int] = Form(None),
+    text: str = Form(""),
+):
+    """Agent chat endpoint. Multipart (photo optional) or JSON {user_id, text}.
+
+    Text-only -> tool-calling agent loop.
+    Photo -> existing classify/extract pipeline (no LLM loop), result as cards.
+    """
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    image_bytes = b""
+    if photo is not None:
+        image_bytes = await photo.read()
+    if user_id is None:
+        try:
+            body = await request.json()
+            user_id = int(body.get("user_id"))
+            text = (body.get("text") or "").strip()
+        except Exception:
+            return JSONResponse({"error": "user_id required"}, status_code=400)
+
+    text = (text or "").strip()
+    if not text and not image_bytes:
+        return JSONResponse({"error": "text or photo required"}, status_code=400)
+    if len(text) > 8000:
+        return JSONResponse({"error": "text too long"}, status_code=400)
+
+    chat_id = _resolve_app_chat_id(user_id)
+    _ensure_app_user(user_id, chat_id)
+    date = _app_today_str()
+
+    try:
+        if image_bytes:
+            if len(image_bytes) > 12 * 1024 * 1024:
+                return JSONResponse({"error": "이미지가 너무 큽니다 (최대 12MB)"}, status_code=400)
+            save_chat_message(user_id, "user", text or "[사진]")
+            try:
+                intent_data = await classify_intent_from_image(image_bytes, hint=text)
+            except Exception as e:
+                logger.error(f"v2 chat intent error: {e}")
+                intent_data = {"intent": "workout", "confidence": 0.3}
+            intent = (intent_data.get("intent") or "workout").lower()
+
+            if intent == "inbody":
+                result = await _app_process_inbody_image(chat_id, user_id, image_bytes, text, date)
+            elif intent == "meal":
+                meal_type = (intent_data.get("meal_type") or "").lower() or _meal_type_by_time()
+                if meal_type not in ("breakfast", "lunch", "dinner", "snack"):
+                    meal_type = _meal_type_by_time()
+                result = await _app_process_meal_image(chat_id, user_id, image_bytes, text, date, meal_type)
+            elif intent == "unrelated":
+                result = {"ok": False, "intent": "unrelated",
+                          "error": "운동·식단·인바디 어느 것에도 해당되지 않는 사진 같아요."}
+            else:
+                result = await _app_process_workout_image(chat_id, user_id, image_bytes, text, date)
+
+            cards = _photo_result_to_cards(result) if result.get("ok") else []
+            if result.get("ok"):
+                reply_md = result.get("message") or "저장했어요."
+            else:
+                reply_md = result.get("error") or "사진을 인식하지 못했어요."
+            save_chat_message(
+                user_id, "assistant", reply_md,
+                cards_json=json.dumps(cards, ensure_ascii=False) if cards else None,
+            )
+            return JSONResponse({"ok": bool(result.get("ok")), "reply_md": reply_md, "cards": cards})
+
+        turn = await run_agent_turn(user_id, chat_id, text)
+        return JSONResponse({"ok": True, "reply_md": turn["reply_md"], "cards": turn["cards"]})
+    except Exception as e:
+        logger.exception("v2 chat error")
+        return JSONResponse({"ok": False, "error": f"처리 중 오류: {e}"}, status_code=500)
+
+
+@app.get("/api/v2/chat/history")
+async def api_v2_chat_history(request: Request, user_id: int = Query(...), limit: int = Query(50)):
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    limit = max(1, min(limit, 200))
+    messages = get_chat_history(user_id, limit=limit)
+    out = []
+    for m in messages:
+        cards = []
+        if m.get("cards_json"):
+            try:
+                cards = json.loads(m["cards_json"])
+            except ValueError:
+                cards = []
+        out.append({
+            "id": m["id"],
+            "role": m["role"],
+            "content": m.get("content") or "",
+            "cards": cards,
+            "created_at": m.get("created_at"),
+        })
+    return JSONResponse({"ok": True, "messages": out})
+
+
+@app.post("/api/v2/inbody/sync")
+async def api_v2_inbody_sync(request: Request):
+    """Fetch latest measurement from LookinBody WebAPI by phone and store it."""
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+    try:
+        body = await request.json()
+        user_id = int(body.get("user_id"))
+    except Exception:
+        return JSONResponse({"error": "user_id required"}, status_code=400)
+    phone = (body.get("phone") or "").strip()
+    if not phone:
+        return JSONResponse({"error": "phone required"}, status_code=400)
+    if not _inbody_api.is_configured():
+        return JSONResponse(
+            {"ok": False, "error": "InBody 연동이 아직 설정되지 않았습니다."}, status_code=503)
+
+    chat_id = _resolve_app_chat_id(user_id)
+    _ensure_app_user(user_id, chat_id)
+    try:
+        measurements = await _inbody_api.fetch_measurements(phone)
+    except RuntimeError as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=502)
+    if not measurements:
+        return JSONResponse({"ok": False, "error": "조회된 측정 데이터가 없습니다."}, status_code=404)
+
+    latest = dict(measurements[0])
+    raw_json = latest.pop("raw_json", "")
+    measured_at = str(latest.pop("measured_at", None) or _app_today_str())
+    inbody_id = _save_inbody_v2(chat_id, user_id, measured_at, latest, raw_json=raw_json)
+    return JSONResponse({
+        "ok": True,
+        "inbody": {"id": inbody_id, "measured_at": measured_at, **latest},
+        "count_available": len(measurements),
+    })

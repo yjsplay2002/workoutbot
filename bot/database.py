@@ -114,6 +114,16 @@ def init_db() -> None:
             created_at TEXT NOT NULL,
             UNIQUE (user_id, date)
         );
+        CREATE TABLE IF NOT EXISTS chat_messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            role TEXT NOT NULL,
+            content TEXT,
+            cards_json TEXT,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_chat_messages_user
+            ON chat_messages (user_id, id);
     """)
     # Add category column if missing (existing DBs)
     try:
@@ -1513,3 +1523,36 @@ def get_active_users_recent(days: int = 7) -> list[dict]:
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+# --- Agent chat messages -------------------------------------------------
+
+def save_chat_message(
+    user_id: int,
+    role: str,
+    content: Optional[str],
+    cards_json: Optional[str] = None,
+) -> int:
+    conn = get_conn()
+    cur = conn.execute(
+        """INSERT INTO chat_messages (user_id, role, content, cards_json, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (user_id, role, content, cards_json, datetime.utcnow().isoformat()),
+    )
+    conn.commit()
+    message_id = cur.lastrowid
+    conn.close()
+    return message_id
+
+
+def get_chat_history(user_id: int, limit: int = 40) -> list[dict]:
+    """Most recent messages in chronological order."""
+    conn = get_conn()
+    rows = conn.execute(
+        """SELECT id, role, content, cards_json, created_at
+           FROM chat_messages WHERE user_id = ?
+           ORDER BY id DESC LIMIT ?""",
+        (user_id, limit),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in reversed(rows)]

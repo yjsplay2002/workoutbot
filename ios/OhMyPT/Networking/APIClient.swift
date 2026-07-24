@@ -147,6 +147,64 @@ struct APIClient {
         return try await send(request)
     }
 
+    // MARK: - v2 Agent Chat
+
+    func fetchChatHistory(limit: Int = 60) async throws -> [ChatMessage] {
+        let url = try makeURL(path: "api/v2/chat/history", queryItems: [
+            URLQueryItem(name: "user_id", value: String(try requireUserID())),
+            URLQueryItem(name: "limit", value: String(limit))
+        ])
+        let response: ChatHistoryResponse = try await request(url)
+        return response.messages
+    }
+
+    func sendChatText(_ text: String) async throws -> ChatSendResponse {
+        let url = try makeURL(path: "api/v2/chat", queryItems: [])
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+
+        let payload: [String: Any] = [
+            "user_id": try requireUserID(),
+            "text": text
+        ]
+        request.httpBody = try JSONSerialization.data(withJSONObject: payload)
+        return try await send(request)
+    }
+
+    func sendChatPhoto(image: UIImage, text: String) async throws -> ChatSendResponse {
+        let userID = try requireUserID()
+        guard let jpeg = image.jpegData(compressionQuality: 0.82) else {
+            throw APIError.imageEncoding
+        }
+
+        let url = try makeURL(path: "api/v2/chat", queryItems: [])
+        let boundary = "Boundary-\(UUID().uuidString)"
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyToken(to: &request)
+
+        var body = Data()
+        appendFormField(to: &body, boundary: boundary, name: "user_id", value: String(userID))
+        appendFormField(to: &body, boundary: boundary, name: "text", value: text)
+        appendFileField(
+            to: &body,
+            boundary: boundary,
+            name: "photo",
+            filename: "photo.jpg",
+            mimeType: "image/jpeg",
+            data: jpeg
+        )
+        body.append("--\(boundary)--\r\n".data(using: .utf8)!)
+        request.httpBody = body
+
+        return try await send(request)
+    }
+
     // MARK: - Internals
 
     private func requireUserID() throws -> Int {

@@ -12,6 +12,11 @@ struct RootView: View {
     var body: some View {
         if configuration.isValid {
             TabView {
+                ChatView(configuration: configuration)
+                    .tabItem {
+                        Label("코치", systemImage: "bubble.left.and.text.bubble.right.fill")
+                    }
+
                 TodayView(configuration: configuration)
                     .tabItem {
                         Label("오늘", systemImage: "chart.pie.fill")
@@ -26,10 +31,10 @@ struct RootView: View {
                     SettingsView()
                 }
                 .tabItem {
-                    Label("설정", systemImage: "gearshape.fill")
+                    Label("프로필", systemImage: "person.crop.circle")
                 }
             }
-            .tint(.blue)
+            .tint(Color(red: 0.055, green: 0.576, blue: 0.518))
         } else {
             NavigationStack {
                 SettingsView(showOnboardingMessage: true)
