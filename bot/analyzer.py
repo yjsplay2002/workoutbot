@@ -252,12 +252,14 @@ CATEGORY_KEYWORDS = {
     ],
 }
 
+# Wayfinding world: category tags are black signage chips — distinction comes
+# from the label text, not hue (airport signs differentiate by pictogram/text).
 CATEGORY_COLORS = {
-    "상체": "#3498db",
-    "하체": "#e74c3c",
-    "코어": "#f1c40f",
-    "유산소": "#2ecc71",
-    "전신": "#9b59b6",
+    "상체": "#0E0E0D",
+    "하체": "#0E0E0D",
+    "코어": "#0E0E0D",
+    "유산소": "#0E0E0D",
+    "전신": "#0E0E0D",
 }
 
 
@@ -312,7 +314,7 @@ def get_category_color(category: str) -> str:
     for key, color in CATEGORY_COLORS.items():
         if key in category:
             return color
-    return "#888888"
+    return "#5D5D57"
 
 
 def extract_kcal(analysis: str) -> Optional[float]:

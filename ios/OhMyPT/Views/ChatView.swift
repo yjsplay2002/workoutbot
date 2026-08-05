@@ -18,6 +18,7 @@ struct ChatView: View {
                 messageList
                 inputBar
             }
+            .background(OMP.concrete)
             .navigationTitle("OhMyPT")
             .navigationBarTitleDisplayMode(.inline)
             .task { await viewModel.loadHistory() }
@@ -150,9 +151,10 @@ private struct MessageRow: View {
                     .padding(message.isUser ? EdgeInsets(top: 9, leading: 14, bottom: 9, trailing: 14) : EdgeInsets())
                     .background(
                         message.isUser
-                            ? AnyView(RoundedRectangle(cornerRadius: 18).fill(Color.accentColor.opacity(0.12)))
+                            ? AnyView(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(OMP.panel))
                             : AnyView(EmptyView())
                     )
+                    .foregroundStyle(message.isUser ? Color.white : OMP.ink)
                     .frame(maxWidth: .infinity, alignment: message.isUser ? .trailing : .leading)
             }
             ForEach(message.cards) { card in
@@ -170,8 +172,10 @@ private struct ChatCardView: View {
         VStack(alignment: .leading, spacing: 6) {
             Text(card.title)
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Color.accentColor)
-                .textCase(.uppercase)
+                .foregroundStyle(.white)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(OMP.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
 
             ForEach(Array(card.rows.enumerated()), id: \.offset) { _, row in
                 if row.count >= 2 {
@@ -197,11 +201,11 @@ private struct ChatCardView: View {
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14)
-                .fill(Color(.secondarySystemGroupedBackground))
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .fill(OMP.sheet)
                 .overlay(
-                    RoundedRectangle(cornerRadius: 14)
-                        .strokeBorder(Color(.separator).opacity(0.5), lineWidth: 0.5)
+                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                        .strokeBorder(OMP.hairline, lineWidth: 1)
                 )
         )
     }

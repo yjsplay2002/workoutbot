@@ -59,7 +59,7 @@ struct MetricPill: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(OMP.inset, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -74,14 +74,14 @@ struct MetricTile: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             Text(value)
-                .font(.headline.monospacedDigit())
+                .font(.headline.weight(.heavy).monospacedDigit())
                 .foregroundStyle(valueColor)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(12)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(OMP.inset, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 }
 
@@ -112,16 +112,16 @@ enum Formatters {
 }
 
 extension View {
+    /// White sign sheet on the concrete ground (wayfinding world).
     func cardStyle() -> some View {
         self
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .background(OMP.sheet, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
             .overlay {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .stroke(Color(.separator).opacity(0.18), lineWidth: 1)
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(OMP.hairline, lineWidth: 1)
             }
-            .shadow(color: Color.black.opacity(0.04), radius: 8, x: 0, y: 2)
     }
 }
 

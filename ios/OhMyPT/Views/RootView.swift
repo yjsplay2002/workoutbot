@@ -34,7 +34,7 @@ struct RootView: View {
                     Label("프로필", systemImage: "person.crop.circle")
                 }
             }
-            .tint(Color(red: 0.055, green: 0.576, blue: 0.518))
+            .tint(OMP.panel)
         } else {
             NavigationStack {
                 SettingsView(showOnboardingMessage: true)

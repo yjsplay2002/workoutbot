@@ -11,11 +11,11 @@ struct RecordDetailView: View {
                     VStack(alignment: .leading, spacing: 10) {
                         HStack {
                             Text(record.category ?? "운동")
-                                .font(.caption.weight(.semibold))
+                                .font(.caption.weight(.bold))
                                 .padding(.horizontal, 10)
                                 .padding(.vertical, 6)
-                                .background(.blue.opacity(0.12), in: Capsule())
-                                .foregroundStyle(.blue)
+                                .background(OMP.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                .foregroundStyle(.white)
 
                             Spacer()
 
@@ -33,7 +33,7 @@ struct RecordDetailView: View {
                 }
                 .padding()
             }
-            .background(Color(.systemGroupedBackground))
+            .background(OMP.concrete)
             .navigationTitle("기록 상세")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

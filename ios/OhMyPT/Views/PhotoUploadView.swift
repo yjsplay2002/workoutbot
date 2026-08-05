@@ -61,7 +61,7 @@ struct PhotoUploadView: View {
             if let error = viewModel.errorMessage {
                 Section {
                     Text(error)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(OMP.red)
                         .font(.subheadline)
                 }
             }

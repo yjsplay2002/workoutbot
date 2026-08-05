@@ -39,17 +39,17 @@
   <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px">
     <div style="background:var(--card2);padding:12px;border-radius:8px;text-align:center">
       <div style="font-size:.75em;color:var(--text2)">단백질 ({{ m.protein_pct }}%)</div>
-      <div style="font-size:1.3em;font-weight:700;color:#ff7675">{{ today_p|int }} / {{ m.protein_g }}<span style="font-size:.6em">g</span></div>
+      <div style="font-size:1.3em;font-weight:700;color:#C42B1C">{{ today_p|int }} / {{ m.protein_g }}<span style="font-size:.6em">g</span></div>
       <div style="font-size:.75em;color:var(--text2);margin-top:2px">{% set rp = m.protein_g - today_p|int %}{% if rp > 0 %}+{{ rp }}g 더{% else %}{{ -rp }}g 초과{% endif %}</div>
     </div>
     <div style="background:var(--card2);padding:12px;border-radius:8px;text-align:center">
       <div style="font-size:.75em;color:var(--text2)">탄수화물 ({{ m.carbs_pct }}%)</div>
-      <div style="font-size:1.3em;font-weight:700;color:#fdcb6e">{{ today_c|int }} / {{ m.carbs_g }}<span style="font-size:.6em">g</span></div>
+      <div style="font-size:1.3em;font-weight:700;color:#9A6B00">{{ today_c|int }} / {{ m.carbs_g }}<span style="font-size:.6em">g</span></div>
       <div style="font-size:.75em;color:var(--text2);margin-top:2px">{% set rc = m.carbs_g - today_c|int %}{% if rc > 0 %}+{{ rc }}g 더{% else %}{{ -rc }}g 초과{% endif %}</div>
     </div>
     <div style="background:var(--card2);padding:12px;border-radius:8px;text-align:center">
       <div style="font-size:.75em;color:var(--text2)">지방 ({{ m.fat_pct }}%)</div>
-      <div style="font-size:1.3em;font-weight:700;color:#a29bfe">{{ today_f|int }} / {{ m.fat_g }}<span style="font-size:.6em">g</span></div>
+      <div style="font-size:1.3em;font-weight:700;color:#151513">{{ today_f|int }} / {{ m.fat_g }}<span style="font-size:.6em">g</span></div>
       <div style="font-size:.75em;color:var(--text2);margin-top:2px">{% set rf = m.fat_g - today_f|int %}{% if rf > 0 %}+{{ rf }}g 더{% else %}{{ -rf }}g 초과{% endif %}</div>
     </div>
   </div>

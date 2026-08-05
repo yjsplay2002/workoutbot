@@ -3,33 +3,44 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>로그인 - 운동 대시보드</title>
+<title>로그인 — OhMyPT</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;background:#0f0f13;color:#e0e0e0;min-height:100vh;display:flex;align-items:center;justify-content:center}
-.login-box{background:#1a1a24;border:1px solid #2d2d44;border-radius:16px;padding:48px 40px;text-align:center;max-width:400px;width:90%}
-.login-box .logo{font-size:2em;margin-bottom:8px}
-.login-box h1{font-size:1.4em;margin-bottom:8px;color:#a29bfe}
-.login-box p{color:#8888a0;margin-bottom:32px;font-size:.95em}
-.tg-widget{display:flex;justify-content:center;margin-top:16px}
+body{font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#EDEDE9;color:#151513;min-height:100vh;display:flex;align-items:center;justify-content:center;font-feature-settings:"tnum"}
+.gate{width:min(440px,92%)}
+.signband{background:#FFC900;border-radius:12px;padding:26px 26px;display:flex;align-items:center;gap:16px}
+.signband .mark{width:52px;height:52px;border-radius:9px;background:#0E0E0D;color:#FFC900;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.signband .mark svg{width:32px;height:32px;fill:currentColor}
+.signband h1{font-size:1.7rem;font-weight:800;letter-spacing:-.02em;line-height:1.15;color:#0E0E0D}
+.signband .sub{font-size:.82rem;font-weight:600;color:#665000;margin-top:2px}
+.board{background:#0E0E0D;color:#fff;border-radius:12px;margin-top:10px;padding:24px 26px;text-align:center}
+.board p{color:#B8B8B0;font-size:.92rem;font-weight:600;margin-bottom:16px}
+.tg-widget{display:flex;justify-content:center}
+noscript p{color:#FF7A6B;margin-top:14px;font-size:.88rem}
 </style>
 </head>
 <body>
-<div class="login-box">
-  <div class="logo">🏋️</div>
-  <h1>운동 기록 대시보드</h1>
-  <p>텔레그램으로 로그인하세요</p>
-  <div class="tg-widget">
-    <script async src="https://telegram.org/js/telegram-widget.js?22"
-      data-telegram-login="{{ bot_username }}"
-      data-size="large"
-      data-auth-url="{{ web_url }}/auth/telegram"
-      data-request-access="write">
-    </script>
+<div class="gate">
+  <div class="signband">
+    <span class="mark"><svg viewBox="0 0 24 24"><path d="M3 9h2v6H3zm16 0h2v6h-2zM6.5 7h2.3v10H6.5zm8.7 0h2.3v10h-2.3zM9.8 10.5h4.4v3H9.8z"/></svg></span>
+    <span>
+      <h1>OhMyPT</h1>
+      <div class="sub">운동 · 식단 · 인바디 — 목표까지 안내</div>
+    </span>
   </div>
-  <noscript>
-    <p style="color:#ff7675;margin-top:16px">JavaScript를 활성화해주세요.</p>
-  </noscript>
+  <div class="board">
+    <p>텔레그램으로 로그인하세요</p>
+    <div class="tg-widget">
+      <script async src="https://telegram.org/js/telegram-widget.js?22"
+        data-telegram-login="{{ bot_username }}"
+        data-size="large"
+        data-auth-url="{{ web_url }}/auth/telegram"
+        data-request-access="write">
+      </script>
+    </div>
+    <noscript><p>JavaScript를 활성화해주세요.</p></noscript>
+  </div>
 </div>
 </body>
 </html>

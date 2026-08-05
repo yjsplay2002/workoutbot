@@ -1,305 +1,261 @@
 {% extends "base.html" %}
-{% block title %}운동 대시보드{% endblock %}
+{% block title %}OhMyPT — 대시보드{% endblock %}
 {% block content %}
-<h1>📊 운동 대시보드</h1>
 
 {% if not user.is_trainer %}
-{# 활성 목표 카드 #}
-<h2 style="margin-top:0">🎯 활성 목표 <a href="/goals" style="font-size:.7em;color:var(--text2);font-weight:400">관리</a></h2>
-{% if active_goals %}
-<div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(240px,1fr))">
-  {% for g in active_goals %}
-  <div class="stat-card" style="{% if g.is_primary %}border-color:var(--accent);box-shadow:0 0 0 1px var(--accent){% endif %}">
-    <div class="label">{% if g.is_primary %}⭐ {% endif %}{{ g.label }}</div>
-    <div class="value" style="font-size:1.2em">
-      {% if g.current_value is not none %}{{ g.current_value }}{% else %}?{% endif %}{{ g.unit }}
-      <span style="font-size:.7em;color:var(--text2)">→ {{ g.target_value }}{{ g.unit }}</span>
-    </div>
-    <div style="font-size:.8em;color:var(--text2);margin-top:6px">
-      📅 {{ g.target_date }}
-      {% if g.days_left is not none %}
-        {% if g.days_left < 0 %}<span style="color:var(--red)">(지남)</span>
-        {% else %}<span>(D-{{ g.days_left }})</span>{% endif %}
-      {% endif %}
-    </div>
-    {% if g.progress_pct is not none %}
-    <div style="background:var(--card2);border-radius:4px;height:6px;margin-top:8px;overflow:hidden">
-      <div style="height:100%;width:{{ g.progress_pct }}%;background:linear-gradient(90deg,var(--accent),var(--accent2))"></div>
-    </div>
-    <div style="font-size:.75em;color:var(--text2);margin-top:4px">{{ g.progress_pct }}%</div>
-    {% endif %}
-  </div>
-  {% endfor %}
-</div>
-{% else %}
-<div class="empty" style="padding:20px">활성 목표가 없습니다. <a href="/goals">목표 추가 →</a></div>
+
+{# ═══ 주 목표: 웨이파인딩 사인밴드 ═══ #}
+{% set primary = active_goals|selectattr('is_primary')|first if active_goals else none %}
+{% if primary %}
+<a class="signband settle" href="/goals" style="padding:20px 22px">
+  <span class="picto on-yellow"><svg class="pic"><use href="#i-target"/></svg></span>
+  <span>
+    <span style="display:block;font-weight:800;font-size:1.02rem">{{ primary.label }}</span>
+    <span class="gate">{% if primary.current_value is not none %}{{ primary.current_value }}{% else %}?{% endif %}<span style="font-size:.45em;font-weight:700"> → {{ primary.target_value }}{{ primary.unit }}</span></span>
+    <span class="sub" style="display:block;margin-top:6px">{{ primary.target_date }}{% if primary.progress_pct is not none %} · 진행 {{ primary.progress_pct }}%{% endif %}</span>
+  </span>
+  {% if primary.days_left is not none and primary.days_left >= 0 %}
+  <span style="margin-left:auto;text-align:right">
+    <span class="sub" style="display:block;white-space:nowrap">남은 일수</span>
+    <span class="gate" style="white-space:nowrap">D-{{ primary.days_left }}</span>
+  </span>
+  {% endif %}
+  <span class="arrow"><svg class="pic"><use href="#i-arrow-r"/></svg></span>
+</a>
+{% elif not active_goals %}
+<a class="signband settle" href="/goals">
+  <span class="picto on-yellow"><svg class="pic"><use href="#i-target"/></svg></span>
+  <span style="font-weight:800;font-size:1.05rem">활성 목표가 없습니다 — 목표를 추가하면 여기서 안내합니다</span>
+  <span class="arrow"><svg class="pic"><use href="#i-arrow-r"/></svg></span>
+</a>
 {% endif %}
 
-{# 일일 칼로리·매크로 목표 #}
+{# 보조 목표: 작은 사인 행 #}
+{% set others = active_goals|rejectattr('is_primary')|list if active_goals else [] %}
+{% if others %}
+<div class="settle" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px;margin-bottom:14px">
+  {% for g in others %}
+  <a href="/goals" class="sheet" style="margin:0;padding:12px 16px;display:flex;align-items:center;gap:10px">
+    <span style="flex:1">
+      <span style="display:block;font-size:.8rem;font-weight:600;color:var(--text2)">{{ g.label }}</span>
+      <span style="font-size:1.15rem;font-weight:800">{% if g.current_value is not none %}{{ g.current_value }}{% else %}?{% endif %} → {{ g.target_value }}{{ g.unit }}</span>
+    </span>
+    {% if g.days_left is not none and g.days_left >= 0 %}<span style="font-weight:800;color:var(--text2)">D-{{ g.days_left }}</span>{% endif %}
+    <svg class="pic" style="color:var(--text2)"><use href="#i-arrow-r"/></svg>
+  </a>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# ═══ 오늘의 결정 지점: 블랙 보드 ═══ #}
 {% if kcal_detail and kcal_detail.target_kcal %}
 {% set today_kcal = today_meal_kcal|int %}
 {% set tgt = kcal_detail.target_kcal|int %}
 {% set remaining = tgt - today_kcal %}
-<h2>🎯 오늘의 칼로리·매크로 목표 <a href="/meals" style="font-size:.7em;color:var(--text2);font-weight:400">식단 페이지</a></h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:0">
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">오늘 섭취</div>
-      <div style="font-size:1.5em;font-weight:700;color:var(--accent2)">{{ today_kcal }} <span style="font-size:.6em">kcal</span></div>
+{% set ex_kcal = today_exercise_kcal|int %}
+<div class="board settle">
+  <div class="board-row">
+    <div class="cell">
+      <div class="label">오늘 섭취</div>
+      <div class="val">{{ today_kcal }}<span class="unit">kcal</span></div>
     </div>
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">목표</div>
-      <div style="font-size:1.5em;font-weight:700;color:var(--accent2)">{{ tgt }} <span style="font-size:.6em">kcal</span></div>
+    <div class="cell">
+      <div class="label">목표 섭취</div>
+      <div class="val">{{ tgt }}<span class="unit">kcal</span></div>
     </div>
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">{% if remaining < 0 %}⚠️ 초과{% else %}✅ 남은 허용{% endif %}</div>
-      <div style="font-size:1.5em;font-weight:700;{% if remaining < 0 %}color:var(--red){% else %}color:var(--green){% endif %}">{{ remaining|abs }} <span style="font-size:.6em">kcal</span></div>
+    <div class="cell">
+      <div class="label">{% if remaining < 0 %}초과{% else %}남은 허용{% endif %}</div>
+      <div class="gate" style="color:{% if remaining < 0 %}#FF7A6B{% else %}var(--yellow){% endif %}">{{ remaining|abs }}<span style="font-size:.35em;font-weight:600;color:var(--on-panel2)"> kcal</span></div>
+    </div>
+    <div class="cell">
+      <div class="label">운동 소모</div>
+      <div class="val">{{ ex_kcal }}<span class="unit">kcal</span></div>
+      {% if kcal_detail.tdee %}
+      {% set today_deficit = (kcal_detail.tdee|int) + ex_kcal - today_kcal %}
+      <div class="label" style="margin-top:6px">{% if today_deficit >= 0 %}적자{% else %}잉여{% endif %} <b style="color:{% if today_deficit >= 0 %}#7BD8A0{% else %}#FF7A6B{% endif %}">{{ today_deficit|abs }}</b></div>
+      {% endif %}
     </div>
   </div>
-  {# Progress bar #}
   {% set pct = ((today_kcal / tgt) * 100)|int if tgt else 0 %}
-  <div style="background:var(--card2);border-radius:4px;height:8px;margin-top:14px;overflow:hidden">
-    <div style="height:100%;width:{{ pct if pct <= 100 else 100 }}%;background:{% if remaining < 0 %}var(--red){% else %}linear-gradient(90deg,var(--accent),var(--accent2)){% endif %};transition:width .3s"></div>
+  <div style="padding:0 18px 16px">
+    <div class="track"><div class="fill{% if remaining < 0 %} bad{% endif %}" style="width:{{ pct if pct <= 100 else 100 }}%"></div></div>
+    <div style="display:flex;justify-content:space-between;font-size:.75rem;color:var(--on-panel2);margin-top:4px">
+      <span>{% if kcal_detail.tdee %}TDEE {{ kcal_detail.tdee|int }}{% if ex_kcal %} + 운동 {{ ex_kcal }}{% endif %} − 섭취 {{ today_kcal }}{% endif %}</span>
+      <span>{{ pct }}%</span>
+    </div>
   </div>
-  <div style="font-size:.75em;color:var(--text2);margin-top:4px;text-align:right">{{ pct }}%</div>
+</div>
 
-  {# 오늘의 적자 + 오늘 운동 소비 #}
-  {% set ex_kcal = today_exercise_kcal|int %}
-  {% if kcal_detail.tdee %}
-  {% set today_deficit = (kcal_detail.tdee|int) + ex_kcal - today_kcal %}
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">오늘의 칼로리 {% if today_deficit >= 0 %}적자{% else %}잉여{% endif %}</div>
-      <div style="font-size:1.4em;font-weight:700;{% if today_deficit >= 0 %}color:var(--green){% else %}color:var(--red){% endif %}">{{ today_deficit }} <span style="font-size:.55em">kcal</span></div>
-      <div style="font-size:.68em;color:var(--text2);margin-top:2px">TDEE {{ kcal_detail.tdee|int }}{% if ex_kcal %} + 운동 {{ ex_kcal }}{% endif %} − 섭취 {{ today_kcal }}</div>
-    </div>
-    {% if ex_kcal %}
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">오늘 운동 소비 🔥</div>
-      <div style="font-size:1.4em;font-weight:700;color:#a29bfe">{{ ex_kcal }} <span style="font-size:.55em">kcal</span></div>
-    </div>
-    {% endif %}
+{# 매크로: 화이트 시트 #}
+{% if kcal_detail.macros %}
+{% set m = kcal_detail.macros %}
+<div class="sheet settle">
+  <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+    <span style="font-weight:800">매크로 목표</span>
+    <span style="font-size:.82rem;color:var(--text2);font-weight:600">{{ {'cut':'감량','maintain':'유지','bulk':'증량','muscle-gain':'근비대'}.get(m.direction, m.direction) }}</span>
+    <a href="/meals" class="more" style="margin-left:auto;font-size:.8rem;font-weight:600;color:var(--text2)">식단 페이지 <svg class="pic"><use href="#i-arrow-r"/></svg></a>
   </div>
-  {% elif ex_kcal %}
-  <div style="margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
-    <div style="font-size:.78em;color:var(--text2)">오늘 운동 소비 🔥</div>
-    <div style="font-size:1.4em;font-weight:700;color:#a29bfe">{{ ex_kcal }} <span style="font-size:.55em">kcal</span></div>
-  </div>
-  {% endif %}
-
-  {% if kcal_detail.macros %}
-  {% set m = kcal_detail.macros %}
-  <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--border)">
-    <div style="font-size:.85em;color:var(--text2);margin-bottom:8px">매크로 목표
-      <span style="color:var(--accent2)">·</span>
-      {{ {'cut':'감량','maintain':'유지','bulk':'증량','muscle-gain':'근비대'}.get(m.direction, m.direction) }}
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px">
+    {% for label, cur, goal, pctv in [('단백질', today_p|default(0)|int, m.protein_g, m.protein_pct), ('탄수화물', today_c|default(0)|int, m.carbs_g, m.carbs_pct), ('지방', today_f|default(0)|int, m.fat_g, m.fat_pct)] %}
+    <div class="inset">
+      <div style="font-size:.78rem;font-weight:600;color:var(--text2)">{{ label }} {{ pctv }}%</div>
+      <div style="font-size:1.2rem;font-weight:800">{{ cur }} / {{ goal }}<span style="font-size:.7rem;font-weight:600;color:var(--text2)">g</span></div>
+      <div class="track" style="margin-top:6px;background:#E4E4DE"><div class="fill{% if goal and cur >= goal %} ok{% endif %}" style="width:{{ ((cur / goal * 100)|int if goal else 0) if (goal and cur < goal) else 100 }}%"></div></div>
     </div>
-    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px">
-      <div style="background:var(--card2);padding:10px;border-radius:6px;text-align:center">
-        <div style="font-size:.75em;color:var(--text2)">단백질 ({{ m.protein_pct }}%)</div>
-        <div style="font-size:1.2em;font-weight:700;color:#ff7675">{{ today_p|default(0)|int }} / {{ m.protein_g }}<span style="font-size:.6em">g</span></div>
-      </div>
-      <div style="background:var(--card2);padding:10px;border-radius:6px;text-align:center">
-        <div style="font-size:.75em;color:var(--text2)">탄수화물 ({{ m.carbs_pct }}%)</div>
-        <div style="font-size:1.2em;font-weight:700;color:#fdcb6e">{{ today_c|default(0)|int }} / {{ m.carbs_g }}<span style="font-size:.6em">g</span></div>
-      </div>
-      <div style="background:var(--card2);padding:10px;border-radius:6px;text-align:center">
-        <div style="font-size:.75em;color:var(--text2)">지방 ({{ m.fat_pct }}%)</div>
-        <div style="font-size:1.2em;font-weight:700;color:#a29bfe">{{ today_f|default(0)|int }} / {{ m.fat_g }}<span style="font-size:.6em">g</span></div>
-      </div>
-    </div>
+    {% endfor %}
   </div>
-  {% endif %}
-
   {% if kcal_detail.reasoning_md %}
-  <details style="margin-top:14px;font-size:.85em">
-    <summary style="cursor:pointer;color:var(--text2)">🧮 계산 근거</summary>
-    <div style="margin-top:8px;padding:10px 14px;background:var(--card2);border-radius:6px;line-height:1.7">{{ kcal_detail.reasoning_md|nl2br }}</div>
+  <details style="margin-top:12px;font-size:.85rem">
+    <summary style="cursor:pointer;color:var(--text2);font-weight:600">계산 근거</summary>
+    <div class="content-box">{{ kcal_detail.reasoning_md|nl2br }}</div>
   </details>
   {% endif %}
 </div>
+{% endif %}
 {% elif kcal_detail and kcal_detail.reasoning_md %}
-<h2>🎯 오늘의 칼로리 목표</h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px;color:var(--text2)">
-  {{ kcal_detail.reasoning_md|nl2br }}
-</div>
+<div class="sheet settle" style="color:var(--text2)">{{ kcal_detail.reasoning_md|nl2br }}</div>
 {% endif %}
 
-{# 칼로리 적자 목표 달성 현황 #}
+{# ═══ 칼로리 적자 목표 달성 현황 ═══ #}
 {% if deficit_progress and deficit_progress.available %}
 {% set dp = deficit_progress %}
 {% set dir_ko = '적자' if dp.direction == 'deficit' else '잉여' %}
-<h2>📉 목표 칼로리 {{ dir_ko }} 달성 현황</h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
-  <div style="font-size:.85em;color:var(--text2);margin-bottom:14px">
-    {{ dp.label }} {{ dp.current_value }}{{ dp.unit }} → {{ dp.target_value }}{{ dp.unit }}
-    (D-{{ dp.days_left }} · {{ dp.target_date }})
+<h2>목표 칼로리 {{ dir_ko }} 현황</h2>
+<div class="sheet">
+  <div style="font-size:.86rem;color:var(--text2);font-weight:600;margin-bottom:12px">
+    {{ dp.label }} {{ dp.current_value }}{{ dp.unit }} → {{ dp.target_value }}{{ dp.unit }} · D-{{ dp.days_left }} ({{ dp.target_date }})
   </div>
-
-  {# 요약 지표 #}
-  <div class="stats-grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:0">
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">필요 총 {{ dir_ko }}</div>
-      <div style="font-size:1.4em;font-weight:700;color:var(--accent2)">{{ dp.total_needed }} <span style="font-size:.55em">kcal</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;margin-bottom:14px">
+    {% for lab, v, unit in [('필요 총 ' ~ dir_ko, dp.total_needed, 'kcal'), ('하루 필요 ' ~ dir_ko, dp.daily_target, 'kcal/일'), ('운동 소비 누적', dp.exercise_total, 'kcal'), ('경과 / 전체', dp.days_elapsed ~ ' / ' ~ dp.total_days, '일')] %}
+    <div class="inset">
+      <div style="font-size:.76rem;font-weight:600;color:var(--text2)">{{ lab }}</div>
+      <div style="font-size:1.2rem;font-weight:800">{{ v }}<span style="font-size:.68rem;font-weight:600;color:var(--text2)"> {{ unit }}</span></div>
     </div>
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">하루 필요 {{ dir_ko }}</div>
-      <div style="font-size:1.4em;font-weight:700;color:var(--accent2)">{{ dp.daily_target }} <span style="font-size:.55em">kcal/일</span></div>
+    {% endfor %}
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="inset">
+      <div style="font-size:.76rem;font-weight:600;color:var(--text2)">목표 누적 ({{ dir_ko }})</div>
+      <div style="font-size:1.25rem;font-weight:800">{{ dp.target_cumulative }}<span style="font-size:.68rem;color:var(--text2)"> kcal</span></div>
     </div>
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">운동 소비(누적)</div>
-      <div style="font-size:1.4em;font-weight:700;color:#a29bfe">{{ dp.exercise_total }} <span style="font-size:.55em">kcal</span></div>
-    </div>
-    <div>
-      <div style="font-size:.8em;color:var(--text2)">경과 / 전체</div>
-      <div style="font-size:1.4em;font-weight:700">{{ dp.days_elapsed }}<span style="font-size:.55em"> / {{ dp.total_days }}일</span></div>
+    <div class="inset">
+      <div style="font-size:.76rem;font-weight:600;color:var(--text2)">실제 달성 ({{ dir_ko }})</div>
+      <div style="font-size:1.25rem;font-weight:800;{% if dp.achievement_pct is not none and dp.achievement_pct >= 100 %}color:var(--green){% elif dp.achievement_pct is not none and dp.achievement_pct < 80 %}color:var(--red){% endif %}">{{ dp.actual_cumulative }}<span style="font-size:.68rem;color:var(--text2)"> kcal</span></div>
     </div>
   </div>
-
-  {# 목표 대비 실제 누적 #}
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px">
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">지금까지 목표({{ dir_ko }} 누적)</div>
-      <div style="font-size:1.3em;font-weight:700">{{ dp.target_cumulative }} <span style="font-size:.55em">kcal</span></div>
-    </div>
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">실제 달성({{ dir_ko }} 누적)</div>
-      <div style="font-size:1.3em;font-weight:700;{% if dp.achievement_pct is not none and dp.achievement_pct >= 100 %}color:var(--green){% elif dp.achievement_pct is not none and dp.achievement_pct < 80 %}color:var(--red){% endif %}">{{ dp.actual_cumulative }} <span style="font-size:.55em">kcal</span></div>
-    </div>
-  </div>
-
-  {# 달성률 바 #}
   {% if dp.achievement_pct is not none %}
   {% set apct = dp.achievement_pct %}
-  <div style="background:var(--card2);border-radius:4px;height:10px;margin-top:14px;overflow:hidden">
-    <div style="height:100%;width:{{ apct if apct <= 100 else 100 }}%;background:{% if apct >= 100 %}var(--green){% elif apct < 80 %}var(--red){% else %}linear-gradient(90deg,var(--accent),var(--accent2)){% endif %};transition:width .3s"></div>
-  </div>
-  <div style="font-size:.8em;color:var(--text2);margin-top:4px;text-align:right">달성률 {{ apct }}% · 측정일 {{ dp.measured_days }}일</div>
+  <div class="track" style="margin-top:12px;height:10px"><div class="fill {% if apct >= 100 %}ok{% elif apct < 80 %}bad{% endif %}" style="width:{{ apct if apct <= 100 else 100 }}%"></div></div>
+  <div style="font-size:.8rem;color:var(--text2);margin-top:4px;text-align:right">달성률 {{ apct }}% · 측정일 {{ dp.measured_days }}일</div>
   {% else %}
-  <div style="font-size:.8em;color:var(--text2);margin-top:12px">아직 측정된 기간이 없습니다.</div>
+  <div style="font-size:.8rem;color:var(--text2);margin-top:10px">아직 측정된 기간이 없습니다.</div>
   {% endif %}
-
-  {# 일자별 표 #}
   {% if dp.rows %}
-  <details style="margin-top:16px" open>
-    <summary style="cursor:pointer;color:var(--text2);font-size:.9em">📋 일자별 {{ dir_ko }} 내역 (최근 {{ dp.rows|length }}일)</summary>
-    <div style="overflow-x:auto;margin-top:10px">
-      <table style="width:100%;border-collapse:collapse;font-size:.85em;min-width:520px">
+  <details style="margin-top:14px" open>
+    <summary style="cursor:pointer;color:var(--text2);font-size:.9rem;font-weight:700">일자별 {{ dir_ko }} 내역 (최근 {{ dp.rows|length }}일)</summary>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table class="rows" style="min-width:520px">
         <thead>
-          <tr style="color:var(--text2);text-align:right">
-            <th style="text-align:left;padding:6px 8px">날짜</th>
-            <th style="padding:6px 8px">섭취</th>
-            <th style="padding:6px 8px">운동소비</th>
-            <th style="padding:6px 8px">TDEE</th>
-            <th style="padding:6px 8px">당일 {{ dir_ko }}</th>
-            <th style="padding:6px 8px">목표 {{ dir_ko }}</th>
-            <th style="padding:6px 8px">달성</th>
-          </tr>
+          <tr><th>날짜</th><th>섭취</th><th>운동소비</th><th>TDEE</th><th>당일 {{ dir_ko }}</th><th>목표 {{ dir_ko }}</th><th>달성</th></tr>
         </thead>
         <tbody>
           {% for r in dp.rows %}
-          <tr style="border-top:1px solid var(--border);text-align:right">
-            <td style="text-align:left;padding:6px 8px">{{ r.date[5:] }}</td>
-            <td style="padding:6px 8px">{{ r.intake }}</td>
-            <td style="padding:6px 8px;color:#a29bfe">{{ r.exercise }}</td>
-            <td style="padding:6px 8px;color:var(--text2)">{{ r.tdee }}</td>
-            <td style="padding:6px 8px;font-weight:700;{% if r.met %}color:var(--green){% else %}color:var(--red){% endif %}">{{ r.day_deficit }}</td>
-            <td style="padding:6px 8px;color:var(--text2)">{{ r.target_daily }}</td>
-            <td style="padding:6px 8px">{% if r.met %}✅{% else %}⚠️{% endif %}</td>
+          <tr>
+            <td>{{ r.date[5:] }}</td>
+            <td>{{ r.intake }}</td>
+            <td>{{ r.exercise }}</td>
+            <td style="color:var(--text2)">{{ r.tdee }}</td>
+            <td style="font-weight:700;color:{% if r.met %}var(--green){% else %}var(--red){% endif %}">{{ r.day_deficit }}</td>
+            <td style="color:var(--text2)">{{ r.target_daily }}</td>
+            <td>{% if r.met %}<svg class="pic" style="color:var(--green)"><use href="#i-check"/></svg>{% else %}<svg class="pic" style="color:var(--red)"><use href="#i-warn"/></svg>{% endif %}</td>
           </tr>
           {% endfor %}
         </tbody>
       </table>
     </div>
-    <div style="font-size:.75em;color:var(--text2);margin-top:8px;line-height:1.6">
-      당일 {{ dir_ko }} = TDEE + 운동소비 − 섭취. 식단이 기록된 날만 집계됩니다.
-    </div>
+    <div style="font-size:.76rem;color:var(--text2);margin-top:8px">당일 {{ dir_ko }} = TDEE + 운동소비 − 섭취. 식단이 기록된 날만 집계됩니다.</div>
   </details>
   {% endif %}
 </div>
 {% elif deficit_progress and deficit_progress.reason %}
-<h2>📉 목표 칼로리 적자 달성 현황</h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px;color:var(--text2);font-size:.9em">
-  {{ deficit_progress.reason }}
-</div>
+<h2>목표 칼로리 적자 현황</h2>
+<div class="sheet" style="color:var(--text2);font-size:.9rem">{{ deficit_progress.reason }}</div>
 {% endif %}
 
-{# ═══════════ 리컴포지션 플랜 (2026.08.10 인바디 재측정) ═══════════ #}
-<h2>🧭 리컴포지션 플랜
+{# ═══ 리컴포지션 플랜 ═══ #}
+<h2>리컴포지션 플랜
   {% if recomp_dday is not none %}
-    <span style="font-size:.75em;color:var(--accent2);font-weight:600">
-      {% if recomp_dday > 0 %}인바디 재측정 D-{{ recomp_dday }}{% elif recomp_dday == 0 %}오늘 인바디 재측정!{% else %}측정일 경과{% endif %}
-    </span>
+  <span style="font-size:.8rem;font-weight:800;background:var(--yellow);color:var(--panel);padding:2px 10px;border-radius:5px">
+    {% if recomp_dday > 0 %}인바디 재측정 D-{{ recomp_dday }}{% elif recomp_dday == 0 %}오늘 인바디 재측정{% else %}측정일 경과{% endif %}
+  </span>
   {% endif %}
 </h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
+<div class="sheet">
 
-  {# ── 오늘 식단 등급 (실시간) ── #}
+  {# 오늘 식단 등급 #}
   {% set rk = today_meal_kcal|int %}
   {% set rp = today_p|default(0)|int %}
-  {% set kcal_ok = rk >= 1500 and rk <= 1700 %}
   {% if rp >= 140 and rk <= 1700 %}{% set grade, gcolor, gdesc = 'A', 'var(--green)', '칼로리 + 단백질 140g+ 완벽' %}
   {% elif rp >= 110 %}{% set grade, gcolor, gdesc = 'B', 'var(--orange)', '단백질 110~140g — 저녁·간식으로 140g 채우기' %}
   {% elif rp >= 70 %}{% set grade, gcolor, gdesc = 'C', 'var(--red)', '단백질 110g 미만 페이스 — 근손실 위험' %}
-  {% else %}{% set grade, gcolor, gdesc = 'D', 'var(--red)', '단백질 70g 미만 — 취침 전 셰이크/그릭요거트 긴급 보충!' %}
+  {% else %}{% set grade, gcolor, gdesc = 'D', 'var(--red)', '단백질 70g 미만 — 취침 전 셰이크/그릭요거트 긴급 보충' %}
   {% endif %}
   {% set p_remaining = 145 - rp %}
-  <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-bottom:16px">
-    <div style="width:64px;height:64px;border-radius:12px;background:var(--card2);display:flex;align-items:center;justify-content:center;font-size:2em;font-weight:800;color:{{ gcolor }};border:2px solid {{ gcolor }}">{{ grade }}</div>
+  <div style="display:grid;grid-template-columns:auto 1fr;gap:16px;align-items:center;margin-bottom:14px">
+    <div style="width:64px;height:64px;border-radius:9px;background:var(--panel);display:flex;align-items:center;justify-content:center;font-size:2.1rem;font-weight:800;color:{{ gcolor }}">{{ grade }}</div>
     <div>
-      <div style="font-weight:700">오늘 식단 등급 <span style="font-size:.75em;color:var(--text2);font-weight:400">(실시간 페이스)</span></div>
-      <div style="font-size:.85em;color:var(--text2)">{{ gdesc }}</div>
-      <div style="font-size:.85em;margin-top:2px">
-        단백질 <b style="color:#ff7675">{{ rp }}g</b> / 145g
-        {% if p_remaining > 0 %}<span style="color:var(--text2)">— {{ p_remaining }}g 남음 (손바닥 단백질 {{ ((p_remaining / 30) + 0.99)|int }}회분)</span>
-        {% else %}<span style="color:var(--green)">✅ 목표 달성</span>{% endif %}
+      <div style="font-weight:800">오늘 식단 등급 <span style="font-size:.78rem;color:var(--text2);font-weight:600">실시간 페이스</span></div>
+      <div style="font-size:.86rem;color:var(--text2)">{{ gdesc }}</div>
+      <div style="font-size:.88rem;margin-top:2px">
+        단백질 <b>{{ rp }}g</b> / 145g
+        {% if p_remaining > 0 %}<span style="color:var(--text2)">— {{ p_remaining }}g 남음 · 손바닥 단백질 {{ ((p_remaining / 30) + 0.99)|int }}회분</span>
+        {% else %}<span style="color:var(--green);font-weight:700">목표 달성</span>{% endif %}
       </div>
     </div>
   </div>
-  {# 단백질 진행 바 #}
   {% set ppct = ((rp / 145) * 100)|int %}
-  <div style="background:var(--card2);border-radius:4px;height:8px;overflow:hidden;margin-bottom:16px">
-    <div style="height:100%;width:{{ ppct if ppct <= 100 else 100 }}%;background:{% if rp >= 140 %}var(--green){% elif rp >= 110 %}var(--orange){% else %}#ff7675{% endif %};transition:width .3s"></div>
-  </div>
+  <div class="track" style="margin-bottom:16px"><div class="fill {% if rp >= 140 %}ok{% elif rp < 110 %}bad{% endif %}" style="width:{{ ppct if ppct <= 100 else 100 }}%"></div></div>
 
-  {# ── 8/10 목표 vs 현재 ── #}
-  <div style="font-size:.9em;font-weight:700;margin-bottom:8px">🎯 8/10 인바디 목표 <span style="font-size:.85em;color:var(--text2);font-weight:400">(기준: 5/7 측정)</span></div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:16px">
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">체지방</div>
-      <div style="font-size:1.15em;font-weight:700">20.3 <span style="color:var(--green)">→ 18.3~18.8</span> <span style="font-size:.6em">kg</span></div>
-      <div style="font-size:.7em;color:var(--text2)">-1.5~2kg (걷기 추가 시 -2)</div>
+  {# 8/10 목표 vs 현재 #}
+  <div style="font-weight:800;font-size:.92rem;margin-bottom:8px">8/10 인바디 목표 <span style="font-size:.82rem;color:var(--text2);font-weight:600">(기준: 5/7 측정)</span></div>
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:14px">
+    <div class="inset">
+      <div style="font-size:.76rem;font-weight:600;color:var(--text2)">체지방</div>
+      <div style="font-size:1.1rem;font-weight:800">20.3 <span style="color:var(--green)">→ 18.3~18.8</span><span style="font-size:.68rem;color:var(--text2)"> kg</span></div>
+      <div style="font-size:.72rem;color:var(--text2)">-1.5~2kg (걷기 추가 시 -2)</div>
     </div>
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">골격근</div>
-      <div style="font-size:1.15em;font-weight:700">32.1 <span style="color:var(--green)">→ 32.4~32.6</span> <span style="font-size:.6em">kg</span></div>
-      <div style="font-size:.7em;color:var(--text2)">크레아틴 포화 + 중량 유지</div>
+    <div class="inset">
+      <div style="font-size:.76rem;font-weight:600;color:var(--text2)">골격근</div>
+      <div style="font-size:1.1rem;font-weight:800">32.1 <span style="color:var(--green)">→ 32.4~32.6</span><span style="font-size:.68rem;color:var(--text2)"> kg</span></div>
+      <div style="font-size:.72rem;color:var(--text2)">크레아틴 포화 + 중량 유지</div>
     </div>
-    <div style="background:var(--card2);padding:12px;border-radius:8px">
-      <div style="font-size:.78em;color:var(--text2)">체중</div>
-      <div style="font-size:1.15em;font-weight:700">77.3 <span style="color:var(--accent2)">→ ~76</span> <span style="font-size:.6em">kg</span></div>
-      <div style="font-size:.7em;color:var(--text2)">크레아틴 수분 +0.5~1kg 정상</div>
+    <div class="inset">
+      <div style="font-size:.76rem;font-weight:600;color:var(--text2)">체중</div>
+      <div style="font-size:1.1rem;font-weight:800">77.3 → ~76<span style="font-size:.68rem;color:var(--text2)"> kg</span></div>
+      <div style="font-size:.72rem;color:var(--text2)">크레아틴 수분 +0.5~1kg 정상</div>
     </div>
   </div>
-  <div style="font-size:.75em;color:var(--text2);margin-bottom:16px;background:var(--card2);padding:8px 12px;border-radius:6px">
-    📏 측정 조건 통일: <b>오전 11시대 · 공복 · 전날 과음/과식 없이</b>
+  <div class="inset" style="font-size:.78rem;color:var(--text2);margin-bottom:14px">측정 조건 통일: <b style="color:var(--text)">오전 11시대 · 공복 · 전날 과음/과식 없이</b></div>
+
+  {# 핵심 룰 #}
+  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:14px;font-size:.8rem">
+    {% for rule in [
+      '크레아틴 <b>3g×2</b> (점심·저녁) · 쉬는 날 포함 매일',
+      'Hot6 <b>운동 전 11:20</b> (점심 후 금지)',
+      '카페인 <b>14시 이후 금지</b>',
+      '걷기 <b>30~40분/일</b> (+200 kcal)',
+      '수면 6h 미만 주간 → 결손 <b>-300</b>으로 축소',
+      '순서: <b>근력 → 유산소</b> (역순 금지)',
+      '본세트 <b>RIR 1~3</b> · 근육통은 지표 아님',
+    ] %}
+    <span style="background:var(--card2);border:1px solid var(--border);padding:5px 11px;border-radius:5px">{{ rule|safe }}</span>
+    {% endfor %}
   </div>
 
-  {# ── 핵심 룰 칩 ── #}
-  <div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:16px;font-size:.8em">
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">💊 크레아틴 <b>3g×2</b> (점심·저녁) · 쉬는 날 포함 매일</span>
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">⚡ Hot6 <b>운동 전 11:20</b> (점심 후 ❌)</span>
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">☕ 카페인 <b>14시 이후 금지</b></span>
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">🚶 걷기 <b>30~40분/일</b> (+200 kcal)</span>
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">😴 수면 6h 미만 주간 → 결손 <b>-300</b>으로 축소</span>
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">🏋️ 순서: <b>근력 → 유산소</b> (역순 ❌)</span>
-    <span style="background:var(--card2);padding:6px 12px;border-radius:16px">🎯 본세트 <b>RIR 1~3</b> · 근육통은 지표 아님</span>
-  </div>
-
-  {# ── 체크리스트 (localStorage 저장) ── #}
+  {# 체크리스트 #}
   <details style="margin-bottom:12px">
-    <summary style="cursor:pointer;font-size:.9em;font-weight:700">✅ 8/10 체크리스트</summary>
-    <div id="recomp-checklist" style="margin-top:10px;display:grid;gap:6px;font-size:.88em">
+    <summary style="cursor:pointer;font-size:.9rem;font-weight:800">8/10 체크리스트</summary>
+    <div id="recomp-checklist" style="margin-top:10px;display:grid;gap:6px;font-size:.88rem">
       {% for item in [
         '크레아틴 3g×2회 매일 (점심·저녁, 쉬는 날 포함)',
         '하루 걷기 30~40분 (결손 -850 확보)',
@@ -310,129 +266,123 @@
         '인바디 측정 조건 통일 (오전 11시 공복)',
       ] %}
       <label style="display:flex;gap:8px;align-items:flex-start;cursor:pointer;background:var(--card2);padding:8px 12px;border-radius:6px">
-        <input type="checkbox" data-ck="recomp-{{ loop.index }}" style="margin-top:3px;accent-color:var(--accent)"> <span>{{ item }}</span>
+        <input type="checkbox" data-ck="recomp-{{ loop.index }}" style="margin-top:3px;accent-color:var(--panel)"> <span>{{ item }}</span>
       </label>
       {% endfor %}
     </div>
   </details>
 
-  {# ── 식사 타임라인 ── #}
+  {# 식사 타임라인 #}
   <details style="margin-bottom:12px">
-    <summary style="cursor:pointer;font-size:.9em;font-weight:700">🍽️ 하루 식사 구조 (1,600 kcal / 단백질 145g)</summary>
-    <div style="overflow-x:auto;margin-top:10px">
-      <table style="width:100%;border-collapse:collapse;font-size:.85em;min-width:480px">
-        <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">시간</th><th style="padding:6px 8px">내용</th><th style="padding:6px 8px;text-align:right">kcal / 단백질</th></tr></thead>
+    <summary style="cursor:pointer;font-size:.9rem;font-weight:800">하루 식사 구조 (1,600 kcal / 단백질 145g)</summary>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table class="rows" style="min-width:480px">
+        <thead><tr><th>시간</th><th style="text-align:left">내용</th><th>kcal / 단백질</th></tr></thead>
         <tbody>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">~11:20</td><td style="padding:6px 8px">블랙커피 + 웨이 반 스쿱 (또는 Hot6 Zero)</td><td style="padding:6px 8px;text-align:right">50 / 12g</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">12:00</td><td style="padding:6px 8px">운동 1시간 (근력 → 유산소)</td><td style="padding:6px 8px;text-align:right;color:var(--text2)">—</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">13:00</td><td style="padding:6px 8px"><b>점심 (최대 끼니)</b> 단백질 60~70g + 탄수 몰빵 · 크레아틴 3g</td><td style="padding:6px 8px;text-align:right">850 / 70g</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">19:00</td><td style="padding:6px 8px">저녁: 단백질 위주 · 탄수 최소 (운동일만 소량) · 크레아틴 3g</td><td style="padding:6px 8px;text-align:right">700 / 65g</td></tr>
-          <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px 8px">합계</td><td style="padding:6px 8px"></td><td style="padding:6px 8px;text-align:right">1,600 / 145~150g</td></tr>
+          <tr><td style="white-space:nowrap">~11:20</td><td style="text-align:left">블랙커피 + 웨이 반 스쿱 (또는 Hot6 Zero)</td><td>50 / 12g</td></tr>
+          <tr><td>12:00</td><td style="text-align:left">운동 1시간 (근력 → 유산소)</td><td style="color:var(--text2)">—</td></tr>
+          <tr><td>13:00</td><td style="text-align:left"><b>점심 (최대 끼니)</b> 단백질 60~70g + 탄수 몰빵 · 크레아틴 3g</td><td>850 / 70g</td></tr>
+          <tr><td>19:00</td><td style="text-align:left">저녁: 단백질 위주 · 탄수 최소 (운동일만 소량) · 크레아틴 3g</td><td>700 / 65g</td></tr>
+          <tr style="font-weight:800"><td>합계</td><td></td><td>1,600 / 145~150g</td></tr>
         </tbody>
       </table>
     </div>
-    <div style="font-size:.78em;color:var(--text2);margin-top:8px;line-height:1.7">
+    <div style="font-size:.78rem;color:var(--text2);margin-top:8px;line-height:1.7">
       <b>점심 추천</b>: 덤벨푸드 샐러드 파스타 + 닭가슴살 추가 · 닭가슴살 200g + 잡곡밥 120g · 연어 180g + 고구마 150g<br>
       <b>저녁 추천</b>: 구운 치킨 반마리 (순살구이, 껍질 제거) · 두부 200g + 계란 2개 + 닭가슴살 100g · 돼지 안심 200g + 쌈채소<br>
       <b>탄수</b>: 운동일 180~200g / 비운동일 120~150g — 운동 직후 점심에 몰아주기 · <b>지방</b> 50~55g
     </div>
   </details>
 
-  {# ── 주간 운동 배치 ── #}
+  {# 주간 운동 배치 #}
   <details>
-    <summary style="cursor:pointer;font-size:.9em;font-weight:700">🏋️ 주 5일 운동 배치</summary>
-    <div style="overflow-x:auto;margin-top:10px">
-      <table style="width:100%;border-collapse:collapse;font-size:.85em;min-width:480px">
-        <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">요일</th><th style="padding:6px 8px">구성</th><th style="padding:6px 8px">내용</th></tr></thead>
+    <summary style="cursor:pointer;font-size:.9rem;font-weight:800">주 5일 운동 배치</summary>
+    <div style="overflow-x:auto;margin-top:8px">
+      <table class="rows" style="min-width:480px">
+        <thead><tr><th>요일</th><th style="text-align:left">구성</th><th style="text-align:left">내용</th></tr></thead>
         <tbody>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">1일차 (60분)</td><td style="padding:6px 8px;white-space:nowrap">근력 온리</td><td style="padding:6px 8px"><b style="color:var(--accent2)">하체 메인</b>: 스쿼트/레그프레스, RDL, 레그컬, 카프, 복근</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">2일차 (30+20)</td><td style="padding:6px 8px;white-space:nowrap">근력+유산소</td><td style="padding:6px 8px">밀기: ISO chest 2종, 숄더프레스, 삼두 → Zone 2</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">3일차 (30+20)</td><td style="padding:6px 8px;white-space:nowrap">근력+유산소</td><td style="padding:6px 8px">당기기: 랫풀, 케이블로우, 로프풀, 이두 → Zone 2</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">4일차 (60분)</td><td style="padding:6px 8px;white-space:nowrap">근력 온리</td><td style="padding:6px 8px"><b style="color:var(--accent2)">전신 컴파운드</b>: RDL/스쿼트, 로우, 체스트, 풀오버</td></tr>
-          <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap">5일차 (30+20)</td><td style="padding:6px 8px;white-space:nowrap">근력+유산소</td><td style="padding:6px 8px">하체 보조: 레그프레스, 런지, 사이드레터럴 → 인터벌</td></tr>
+          <tr><td style="white-space:nowrap">1일차 (60분)</td><td style="text-align:left;white-space:nowrap">근력 온리</td><td style="text-align:left"><b>하체 메인</b>: 스쿼트/레그프레스, RDL, 레그컬, 카프, 복근</td></tr>
+          <tr><td style="white-space:nowrap">2일차 (30+20)</td><td style="text-align:left;white-space:nowrap">근력+유산소</td><td style="text-align:left">밀기: ISO chest 2종, 숄더프레스, 삼두 → Zone 2</td></tr>
+          <tr><td style="white-space:nowrap">3일차 (30+20)</td><td style="text-align:left;white-space:nowrap">근력+유산소</td><td style="text-align:left">당기기: 랫풀, 케이블로우, 로프풀, 이두 → Zone 2</td></tr>
+          <tr><td style="white-space:nowrap">4일차 (60분)</td><td style="text-align:left;white-space:nowrap">근력 온리</td><td style="text-align:left"><b>전신 컴파운드</b>: RDL/스쿼트, 로우, 체스트, 풀오버</td></tr>
+          <tr><td style="white-space:nowrap">5일차 (30+20)</td><td style="text-align:left;white-space:nowrap">근력+유산소</td><td style="text-align:left">하체 보조: 레그프레스, 런지, 사이드레터럴 → 인터벌</td></tr>
         </tbody>
       </table>
     </div>
-    <div style="font-size:.78em;color:var(--text2);margin-top:8px;line-height:1.7">
+    <div style="font-size:.78rem;color:var(--text2);margin-top:8px;line-height:1.7">
       컷 중 목표는 증량이 아닌 <b>중량 유지</b> (탑세트 숫자 사수) · 유산소는 Zone 2 (심박 120~140), 주 1회만 인터벌 · 하체가 최대 구멍 — 골격근 +0.5kg은 하체에서 나옴
     </div>
   </details>
 
-  {# ── 크레아틴 가이드 ── #}
+  {# 크레아틴 가이드 #}
   <details style="margin-top:12px">
-    <summary style="cursor:pointer;font-size:.9em;font-weight:700">💊 크레아틴 가이드 — 3g × 2회 = 6g/일</summary>
-    <div style="margin-top:10px;font-size:.85em;line-height:1.7">
-      <div style="background:var(--card2);padding:10px 14px;border-radius:8px;margin-bottom:10px;border-left:3px solid var(--accent)">
-        타이밍보다 <b style="color:var(--accent2)">"매일 빠짐없이"</b>가 압도적으로 중요 — 근육에 쌓이는 저장형 보충제라 혈중 타이밍 게임이 아님.
+    <summary style="cursor:pointer;font-size:.9rem;font-weight:800">크레아틴 가이드 — 3g × 2회 = 6g/일</summary>
+    <div style="margin-top:10px;font-size:.86rem;line-height:1.7">
+      <div class="inset" style="margin-bottom:10px">
+        타이밍보다 <b>"매일 빠짐없이"</b>가 압도적으로 중요 — 근육에 쌓이는 저장형 보충제라 혈중 타이밍 게임이 아님.
         총 6g은 체중 77kg에 딱 적절 (5~7g 권장 범위). 3g 분할로 위장 부담(더부룩함·묽은 변) 거의 없음.
         로딩 없이 <b>약 3~4주면 포화</b> — 8/10까지 80~90% 도달 (더 빨리 원하면 첫 5일만 3g×4회 임시 로딩).
       </div>
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:.95em;min-width:420px">
-          <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">회차</th><th style="padding:6px 8px">시간</th><th style="padding:6px 8px">이유</th></tr></thead>
+        <table class="rows" style="min-width:420px">
+          <thead><tr><th>회차</th><th style="text-align:left">시간</th><th style="text-align:left">이유</th></tr></thead>
           <tbody>
-            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap;font-weight:700">1회차 3g</td><td style="padding:6px 8px;white-space:nowrap"><b style="color:var(--green)">운동 직후 점심 (13시)</b></td><td style="padding:6px 8px;color:var(--text2)">탄수+단백질과 함께 → 인슐린이 근육 흡수 도움. 연구상 유일하게 근소한 우위 확인된 타이밍</td></tr>
-            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px;white-space:nowrap;font-weight:700">2회차 3g</td><td style="padding:6px 8px;white-space:nowrap"><b style="color:var(--green)">저녁 식사 (19시)</b></td><td style="padding:6px 8px;color:var(--text2)">식사와 함께 = 흡수↑ + 위장 편함 + 까먹지 않음</td></tr>
+            <tr><td style="white-space:nowrap;font-weight:800">1회차 3g</td><td style="text-align:left;white-space:nowrap;color:var(--green);font-weight:700">운동 직후 점심 (13시)</td><td style="text-align:left;color:var(--text2)">탄수+단백질과 함께 → 인슐린이 근육 흡수 도움. 연구상 유일하게 근소한 우위 확인된 타이밍</td></tr>
+            <tr><td style="white-space:nowrap;font-weight:800">2회차 3g</td><td style="text-align:left;white-space:nowrap;color:var(--green);font-weight:700">저녁 식사 (19시)</td><td style="text-align:left;color:var(--text2)">식사와 함께 = 흡수↑ + 위장 편함 + 까먹지 않음</td></tr>
           </tbody>
         </table>
       </div>
-      <div style="font-size:.92em;color:var(--text2);margin-top:6px">
-        간격은 아무래도 상관없음 — <b>"점심 1포, 저녁 1포" 식사에 묶는 것</b>이 지속률을 결정
-      </div>
-      <ul style="margin:10px 0 0 18px;font-size:.92em;color:var(--text2)">
+      <div style="font-size:.84rem;color:var(--text2);margin-top:6px">간격은 아무래도 상관없음 — <b>"점심 1포, 저녁 1포" 식사에 묶는 것</b>이 지속률을 결정</div>
+      <ul style="margin:10px 0 0 18px;font-size:.84rem;color:var(--text2)">
         <li><b>비운동일에도 동일하게 6g</b> — 쉬는 날 끊으면 포화 수준 하락. 크레아틴에 휴무일 없음</li>
         <li>물 하루 <b>2L+</b> — 수분을 근육으로 끌어가므로 부족하면 갈증·경련 느낌</li>
         <li>카페인과 같이 먹어도 효과 상쇄 없음 (옛날 속설) — Hot6 타이밍 겹쳐도 무관</li>
         <li>뜨거운 물에 오래 타두면 분해 — <b>먹기 직전에 타서 바로</b> 마시기</li>
         <li>첫 1~2주 체중 <b>+0.5~1kg은 수분</b> — 인바디 체중 숫자에 흔들리지 말 것</li>
       </ul>
-      <div style="margin-top:10px;font-weight:700;color:var(--accent2)">한 줄: 점심(운동 직후)·저녁 식사에 각각 붙이고, 쉬는 날 포함 매일 — 타이밍 고민 끝</div>
+      <div style="margin-top:10px;font-weight:800">한 줄: 점심(운동 직후)·저녁 식사에 각각 붙이고, 쉬는 날 포함 매일 — 타이밍 고민 끝</div>
     </div>
   </details>
 
-  {# ── 강도 가이드: RIR > 근육통 ── #}
+  {# 강도 가이드 #}
   <details style="margin-top:12px">
-    <summary style="cursor:pointer;font-size:.9em;font-weight:700">💪 강도 가이드 — 근육통이 아니라 RIR로 판단</summary>
-    <div style="margin-top:10px;font-size:.85em;line-height:1.7">
-      <div style="background:var(--card2);padding:10px 14px;border-radius:8px;margin-bottom:10px;border-left:3px solid var(--accent)">
+    <summary style="cursor:pointer;font-size:.9rem;font-weight:800">강도 가이드 — 근육통이 아니라 RIR로 판단</summary>
+    <div style="margin-top:10px;font-size:.86rem;line-height:1.7">
+      <div class="inset" style="margin-bottom:10px">
         근육통(DOMS)은 자극의 질이 아니라 <b>"낯섦"의 지표</b>. 같은 루틴으로 꾸준히 성장하는 사람은 근육통 거의 없음 — "안 아프면 운동 안 됐다"는 미신.
-        진짜 지표는 <b style="color:var(--accent2)">세트 끝냈을 때 몇 개 더 가능했는가 (RIR)</b> + <b>기록 유지</b> (RDL 80×10, 랫풀 40×8이 18일간 안 떨어지면 강도 충분).
+        진짜 지표는 <b>세트 끝냈을 때 몇 개 더 가능했는가 (RIR)</b> + <b>기록 유지</b> (RDL 80×10, 랫풀 40×8이 18일간 안 떨어지면 강도 충분).
       </div>
       <div style="overflow-x:auto">
-        <table style="width:100%;border-collapse:collapse;font-size:.95em;min-width:400px">
-          <thead><tr style="color:var(--text2);text-align:left"><th style="padding:6px 8px">RIR (남은 개수)</th><th style="padding:6px 8px">의미</th><th style="padding:6px 8px">평가</th></tr></thead>
+        <table class="rows" style="min-width:400px">
+          <thead><tr><th style="text-align:left">RIR (남은 개수)</th><th style="text-align:left">의미</th><th style="text-align:left">평가</th></tr></thead>
           <tbody>
-            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">4~5개+</td><td style="padding:6px 8px">워밍업 수준</td><td style="padding:6px 8px;color:var(--text2)">성장 자극 거의 없음</td></tr>
-            <tr style="border-top:1px solid var(--border);font-weight:700"><td style="padding:6px 8px;color:var(--green)">1~3개</td><td style="padding:6px 8px">유효 강도</td><td style="padding:6px 8px;color:var(--green)">✅ 스위트스팟 — 매 본세트 목표</td></tr>
-            <tr style="border-top:1px solid var(--border)"><td style="padding:6px 8px">0개 (완전 실패)</td><td style="padding:6px 8px">한계</td><td style="padding:6px 8px;color:var(--orange)">가끔 OK, 매 세트는 회복 비용 과다</td></tr>
+            <tr><td style="text-align:left">4~5개+</td><td style="text-align:left">워밍업 수준</td><td style="text-align:left;color:var(--text2)">성장 자극 거의 없음</td></tr>
+            <tr style="font-weight:800"><td style="text-align:left;color:var(--green)">1~3개</td><td style="text-align:left">유효 강도</td><td style="text-align:left;color:var(--green)">스위트스팟 — 매 본세트 목표</td></tr>
+            <tr><td style="text-align:left">0개 (완전 실패)</td><td style="text-align:left">한계</td><td style="text-align:left;color:var(--orange)">가끔 OK, 매 세트는 회복 비용 과다</td></tr>
           </tbody>
         </table>
       </div>
-      <div style="font-size:.92em;color:var(--text2);margin-top:6px">
-        "10개 목표인데 12~13개 가능했겠다" → 무게 올리기 · "11개째는 못 들었겠다" → 정확한 강도
-      </div>
-
-      <div style="margin-top:12px;font-weight:700">근육통 자가 체크 (10점 만점)</div>
+      <div style="font-size:.84rem;color:var(--text2);margin-top:6px">"10개 목표인데 12~13개 가능했겠다" → 무게 올리기 · "11개째는 못 들었겠다" → 정확한 강도</div>
+      <div style="margin-top:12px;font-weight:800">근육통 자가 체크 (10점 만점)</div>
       <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:6px">
-        <div style="background:var(--card2);padding:10px 12px;border-radius:8px">
-          <div style="color:var(--green);font-weight:700">3~4점 — 정상</div>
-          <div style="font-size:.9em;color:var(--text2)">만지면 뻐근, 계단 내려갈 때 느껴지는 정도</div>
+        <div class="inset">
+          <div style="color:var(--green);font-weight:800">3~4점 — 정상</div>
+          <div style="font-size:.84rem;color:var(--text2)">만지면 뻐근, 계단 내려갈 때 느껴지는 정도</div>
         </div>
-        <div style="background:var(--card2);padding:10px 12px;border-radius:8px">
-          <div style="color:var(--red);font-weight:700">7점+ (잠에 지장) — 경고</div>
-          <div style="font-size:.9em;color:var(--text2)">회복 능력 초과 신호 → 볼륨 20~30% 축소</div>
+        <div class="inset">
+          <div style="color:var(--red);font-weight:800">7점+ (잠에 지장) — 경고</div>
+          <div style="font-size:.84rem;color:var(--text2)">회복 능력 초과 신호 → 볼륨 20~30% 축소</div>
         </div>
       </div>
-      <div style="background:var(--card2);padding:10px 14px;border-radius:8px;margin-top:10px;font-size:.92em;border-left:3px solid var(--red)">
-        ⚠️ 잠 깨우는 근육통 = 성실함 아니라 <b>과용량</b>. 깊은 수면↓ → 성장호르몬↓ → 회복 자원 깎임 → 다음날 코르티솔↑ 식욕 붕괴 → 1,600 kcal 못 지킴 → 중량 하락 → 근손실. 결손 -640 상태는 회복 자원이 평소보다 적어 평소 볼륨도 과할 수 있음.
+      <div class="inset" style="margin-top:10px;font-size:.84rem">
+        잠 깨우는 근육통 = 성실함 아니라 <b>과용량</b>. 깊은 수면↓ → 성장호르몬↓ → 회복 자원 깎임 → 다음날 코르티솔↑ 식욕 붕괴 → 1,600 kcal 못 지킴 → 중량 하락 → 근손실. 결손 -640 상태는 회복 자원이 평소보다 적어 평소 볼륨도 과할 수 있음.
       </div>
-
-      <ul style="margin:10px 0 0 18px;font-size:.92em;color:var(--text2)">
+      <ul style="margin:10px 0 0 18px;font-size:.84rem;color:var(--text2)">
         <li>하체데이 첫 2주는 예외적으로 아픔 — 첫 주 종목당 본세트 <b>2개 · RIR 3</b>으로 진입, 2~3주차부터 증량</li>
         <li>근육통 심한 날 = 쉬는 날 아님 → <b>다른 부위 + Zone 2 걷기</b> (혈류가 회복 도움)</li>
         <li>격한 세션 후 취침 전 <b>카제인/그릭요거트</b> — 야간 회복 지원</li>
       </ul>
-      <div style="margin-top:10px;font-weight:700;color:var(--accent2)">한 줄: 유지할 건 "이틀 뒤의 고통"이 아니라 "매 본세트 1~3개 남기는 강도 + 기록 유지"</div>
+      <div style="margin-top:10px;font-weight:800">한 줄: 유지할 건 "이틀 뒤의 고통"이 아니라 "매 본세트 1~3개 남기는 강도 + 기록 유지"</div>
     </div>
   </details>
 </div>
@@ -446,12 +396,12 @@
 })();
 </script>
 
-{# 최근 인바디 #}
+{# ═══ 최근 인바디: 블랙 보드 ═══ #}
 {% if latest_inbody %}
-<h2>📏 최근 인바디 <a href="/inbody" style="font-size:.7em;color:var(--text2);font-weight:400">전체 보기</a></h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
-  <div style="color:var(--text2);font-size:.85em;margin-bottom:12px">측정일: {{ latest_inbody.measured_at }}</div>
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px">
+<h2>최근 인바디 <a class="more" href="/inbody">전체 보기 <svg class="pic"><use href="#i-arrow-r"/></svg></a></h2>
+<div class="board">
+  <div style="padding:12px 18px 0;font-size:.8rem;font-weight:600;color:var(--on-panel2)">측정일 {{ latest_inbody.measured_at }}</div>
+  <div class="board-row" style="grid-auto-flow:row;grid-template-columns:repeat(auto-fit,minmax(140px,1fr))">
     {% set fields = [
       ("weight_kg", "체중", "kg"),
       ("skeletal_muscle_kg", "골격근량", "kg"),
@@ -462,9 +412,9 @@
     ] %}
     {% for key, label, unit in fields %}
       {% if latest_inbody[key] is not none %}
-      <div>
-        <div style="font-size:.8em;color:var(--text2)">{{ label }}</div>
-        <div style="font-size:1.2em;font-weight:700;color:var(--accent2)">{{ latest_inbody[key] }}<span style="font-size:.7em">{{ unit }}</span></div>
+      <div class="cell" style="border-top:none">
+        <div class="label">{{ label }}</div>
+        <div class="val">{{ latest_inbody[key] }}<span class="unit">{{ unit }}</span></div>
       </div>
       {% endif %}
     {% endfor %}
@@ -472,45 +422,49 @@
 </div>
 {% endif %}
 
-{# 오늘의 계획 #}
+{# ═══ 오늘의 계획 ═══ #}
 {% if today_plan %}
-<h2>📅 오늘의 계획</h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:24px">
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:12px">
+<h2>오늘의 계획</h2>
+<div class="sheet">
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:10px">
     {% if today_plan.target_kcal_intake %}
-    <div><div style="font-size:.8em;color:var(--text2)">권장 섭취</div><div style="font-size:1.2em;font-weight:700;color:var(--accent2)">{{ today_plan.target_kcal_intake|int }} kcal</div></div>
+    <div class="inset"><div style="font-size:.76rem;font-weight:600;color:var(--text2)">권장 섭취</div><div style="font-size:1.2rem;font-weight:800">{{ today_plan.target_kcal_intake|int }} <span style="font-size:.68rem;color:var(--text2)">kcal</span></div></div>
     {% endif %}
     {% if today_plan.target_kcal_burn %}
-    <div><div style="font-size:.8em;color:var(--text2)">권장 소모</div><div style="font-size:1.2em;font-weight:700;color:var(--accent2)">{{ today_plan.target_kcal_burn|int }} kcal</div></div>
+    <div class="inset"><div style="font-size:.76rem;font-weight:600;color:var(--text2)">권장 소모</div><div style="font-size:1.2rem;font-weight:800">{{ today_plan.target_kcal_burn|int }} <span style="font-size:.68rem;color:var(--text2)">kcal</span></div></div>
     {% endif %}
   </div>
-  {% if today_plan.breakfast_suggestion %}<div style="margin-top:8px"><b>🌅 아침</b><div class="content-box">{{ today_plan.breakfast_suggestion|nl2br }}</div></div>{% endif %}
-  {% if today_plan.lunch_suggestion %}<div style="margin-top:8px"><b>☀️ 점심</b><div class="content-box">{{ today_plan.lunch_suggestion|nl2br }}</div></div>{% endif %}
-  {% if today_plan.dinner_suggestion %}<div style="margin-top:8px"><b>🌙 저녁</b><div class="content-box">{{ today_plan.dinner_suggestion|nl2br }}</div></div>{% endif %}
+  {% if today_plan.breakfast_suggestion %}<div style="margin-top:8px"><b>아침</b><div class="content-box">{{ today_plan.breakfast_suggestion|nl2br }}</div></div>{% endif %}
+  {% if today_plan.lunch_suggestion %}<div style="margin-top:8px"><b>점심</b><div class="content-box">{{ today_plan.lunch_suggestion|nl2br }}</div></div>{% endif %}
+  {% if today_plan.dinner_suggestion %}<div style="margin-top:8px"><b>저녁</b><div class="content-box">{{ today_plan.dinner_suggestion|nl2br }}</div></div>{% endif %}
 </div>
 {% endif %}
 {% endif %}
 
-<h2>📊 통계</h2>
-<div class="stats-grid">
-  <div class="stat-card"><div class="label">총 기록 수</div><div class="value">{{ total_records }}</div></div>
-  <div class="stat-card"><div class="label">사용자 수</div><div class="value">{{ total_users }}</div></div>
-  <div class="stat-card"><div class="label">평균 칼로리</div><div class="value">{{ avg_kcal }} kcal</div></div>
-  <div class="stat-card"><div class="label">총 소모 칼로리</div><div class="value">{{ total_kcal }} kcal</div></div>
+{# ═══ 통계 ═══ #}
+<h2>통계</h2>
+<div class="board">
+  <div class="board-row">
+    <div class="cell"><div class="label">총 기록</div><div class="val">{{ total_records }}<span class="unit">회</span></div></div>
+    {% if user.is_trainer %}<div class="cell"><div class="label">사용자</div><div class="val">{{ total_users }}<span class="unit">명</span></div></div>{% endif %}
+    <div class="cell"><div class="label">세션 평균 소모</div><div class="val">{{ avg_kcal|round(0)|int }}<span class="unit">kcal</span></div></div>
+    <div class="cell"><div class="label">총 소모</div><div class="val">{{ total_kcal|round(0)|int }}<span class="unit">kcal</span></div></div>
+  </div>
 </div>
 
-<h2>📅 운동 캘린더</h2>
-<div style="background:var(--card);border-radius:12px;padding:20px;border:1px solid var(--border);margin-bottom:32px;overflow-x:auto">
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
-    <a href="/?year={{ prev_year }}&month={{ prev_month }}" style="padding:8px 16px;background:var(--card2);border-radius:8px;color:var(--text);text-decoration:none;font-size:1.1em">←</a>
-    <span style="font-size:1.2em;font-weight:700;color:var(--accent2)">{{ cal_year }}년 {{ cal_month }}월</span>
-    <a href="/?year={{ next_year }}&month={{ next_month }}" style="padding:8px 16px;background:var(--card2);border-radius:8px;color:var(--text);text-decoration:none;font-size:1.1em">→</a>
+{# ═══ 운동 캘린더 ═══ #}
+<h2>운동 캘린더</h2>
+<div class="sheet" style="overflow-x:auto;margin-bottom:28px">
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px">
+    <a href="/?year={{ prev_year }}&month={{ prev_month }}" style="padding:7px 14px;background:var(--card2);border-radius:7px;display:inline-flex"><svg class="pic"><use href="#i-arrow-l"/></svg></a>
+    <span style="font-size:1.1rem;font-weight:800">{{ cal_year }}년 {{ cal_month }}월</span>
+    <a href="/?year={{ next_year }}&month={{ next_month }}" style="padding:7px 14px;background:var(--card2);border-radius:7px;display:inline-flex"><svg class="pic"><use href="#i-arrow-r"/></svg></a>
   </div>
   <table style="width:100%;border-collapse:collapse;table-layout:fixed">
     <thead>
       <tr>
         {% for d in ["월","화","수","목","금","토","일"] %}
-        <th style="padding:8px 2px;color:var(--text2);font-size:.85em;font-weight:600;text-align:center;{% if d == '토' %}color:#5b9bd5{% elif d == '일' %}color:#e74c3c{% endif %}">{{ d }}</th>
+        <th style="padding:8px 2px;font-size:.82rem;font-weight:700;text-align:center;color:{% if d == '토' %}var(--text2){% elif d == '일' %}var(--red){% else %}var(--text2){% endif %}">{{ d }}</th>
         {% endfor %}
       </tr>
     </thead>
@@ -518,19 +472,19 @@
       {% for week in cal_weeks %}
       <tr>
         {% for day in week %}
-        <td style="vertical-align:top;padding:4px 2px;height:72px;border-top:1px solid var(--border);{% if day == today_day %}background:rgba(108,92,231,0.1){% endif %}">
+        <td style="vertical-align:top;padding:4px 2px;height:72px;border-top:1px solid var(--border);{% if day == today_day %}background:#FFC9002E{% endif %}">
           {% if day %}
-          <div style="font-size:.8em;color:{% if loop.index == 6 %}#5b9bd5{% elif loop.index == 7 %}#e74c3c{% else %}var(--text2){% endif %};margin-bottom:2px;text-align:center;font-weight:{% if day == today_day %}700{% else %}400{% endif %}">{{ day }}</div>
+          <div style="font-size:.8rem;color:{% if loop.index == 6 %}var(--text2){% elif loop.index == 7 %}var(--red){% else %}var(--text2){% endif %};margin-bottom:2px;text-align:center;font-weight:{% if day == today_day %}800{% else %}500{% endif %}">{{ day }}</div>
           {% if day in cal_data %}
             {% for r in cal_data[day][:3] %}
             <a href="/records/{{ r.id }}" style="text-decoration:none;display:block">
-              <div style="font-size:.65em;padding:1px 3px;margin:1px 0;border-radius:4px;text-align:center;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:{{ get_category_color(r.category or '기타') }}{% if user.is_trainer and r.name %};opacity:0.9{% endif %}">
+              <div style="font-size:.65rem;font-weight:600;padding:1px 3px;margin:1px 0;border-radius:4px;text-align:center;color:#fff;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;background:{{ get_category_color(r.category or '기타') }}">
                 {% if user.is_trainer and r.name %}{{ r.name|truncate(4,True,'') }} {% endif %}{{ r.category or '기타' }}
               </div>
             </a>
             {% endfor %}
             {% if cal_data[day]|length > 3 %}
-            <div style="font-size:.6em;text-align:center;color:var(--text2)">+{{ cal_data[day]|length - 3 }}</div>
+            <div style="font-size:.6rem;text-align:center;color:var(--text2)">+{{ cal_data[day]|length - 3 }}</div>
             {% endif %}
           {% endif %}
           {% endif %}
@@ -542,24 +496,29 @@
   </table>
 </div>
 
-<h2>🕐 최근 기록</h2>
+{# ═══ 최근 기록 ═══ #}
+<h2>최근 기록</h2>
 {% if recent %}
 {% for r in recent %}
 <a href="/records/{{ r.id }}" style="text-decoration:none;color:inherit">
-<div class="record-card">
-  <div class="meta">
-    <span class="date">📅 {{ r.date }}</span>
-    <span class="user"><a href="/user/{{ r.user_id }}">{{ r.name or ('사용자 ' ~ r.user_id) }}</a></span>
-    {% if r.category %}<span style="display:inline-block;padding:2px 8px;border-radius:10px;font-size:.75em;font-weight:600;color:#fff;background:{{ get_category_color(r.category) }}">{{ r.category }}</span>{% endif %}
-    {% if r.estimated_kcal %}
-    <span class="kcal {% if r.estimated_kcal < 200 %}kcal-low{% elif r.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">🔥 {{ r.estimated_kcal|round(0)|int }} kcal</span>
-    {% endif %}
-  </div>
-  {% if r.analysis %}<div style="color:var(--text2);font-size:.85em;margin-top:4px">{{ r.analysis|strip_tags|truncate(120) }}</div>{% endif %}
+<div class="record-card" style="display:flex;align-items:center;gap:14px">
+  <span class="picto"><svg class="pic"><use href="#i-barbell"/></svg></span>
+  <span style="flex:1;min-width:0">
+    <span class="meta" style="margin-bottom:2px">
+      <span class="date">{{ r.date }}</span>
+      <span class="user">{{ r.name or ('사용자 ' ~ r.user_id) }}</span>
+      {% if r.category %}<span style="display:inline-block;padding:1px 8px;border-radius:5px;font-size:.74rem;font-weight:700;color:#fff;background:{{ get_category_color(r.category) }}">{{ r.category }}</span>{% endif %}
+      {% if r.estimated_kcal %}
+      <span class="kcal {% if r.estimated_kcal < 200 %}kcal-low{% elif r.estimated_kcal < 500 %}kcal-mid{% else %}kcal-high{% endif %}">{{ r.estimated_kcal|round(0)|int }} kcal</span>
+      {% endif %}
+    </span>
+    {% if r.analysis %}<span style="display:block;color:var(--text2);font-size:.84rem;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">{{ r.analysis|strip_tags|truncate(120) }}</span>{% endif %}
+  </span>
+  <svg class="pic" style="color:var(--text2);flex-shrink:0"><use href="#i-arrow-r"/></svg>
 </div>
 </a>
 {% endfor %}
 {% else %}
-<div class="empty">아직 기록이 없습니다 🏃</div>
+<div class="empty">아직 기록이 없습니다</div>
 {% endif %}
 {% endblock %}

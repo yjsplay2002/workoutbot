@@ -52,7 +52,7 @@ struct SettingsView: View {
                     )
                     Spacer()
                 }
-                .foregroundStyle(configuration.isValid ? .green : .red)
+                .foregroundStyle(configuration.isValid ? OMP.green : OMP.red)
             }
 
             Section("앱 안내") {

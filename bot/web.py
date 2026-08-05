@@ -367,9 +367,9 @@ async def dashboard(request: Request, year: Optional[int] = None, month: Optiona
                 g["current_value"] = fallback_weight
             if g["current_value"] is not None and g.get("start_value"):
                 try:
-                    total = g["target_value"] - g["start_value"]
+                    goal_span = g["target_value"] - g["start_value"]
                     done = g["current_value"] - g["start_value"]
-                    g["progress_pct"] = 100 if total == 0 else max(0, min(100, int(done / total * 100)))
+                    g["progress_pct"] = 100 if goal_span == 0 else max(0, min(100, int(done / goal_span * 100)))
                 except Exception:
                     g["progress_pct"] = None
             else:

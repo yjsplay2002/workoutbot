@@ -17,8 +17,8 @@ struct AnalysisResultView: View {
                                     .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 5)
-                                    .background(.blue.opacity(0.12), in: Capsule())
-                                    .foregroundStyle(.blue)
+                                    .background(OMP.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                    .foregroundStyle(.white)
                                 Text(record.date ?? "-")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
@@ -27,8 +27,8 @@ struct AnalysisResultView: View {
                                         .font(.caption2.weight(.bold))
                                         .padding(.horizontal, 8)
                                         .padding(.vertical, 4)
-                                        .background(.orange.opacity(0.15), in: Capsule())
-                                        .foregroundStyle(.orange)
+                                        .background(OMP.yellow, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                        .foregroundStyle(OMP.panel)
                                 }
                                 Spacer()
                                 Text(Formatters.kcal(record.estimatedKcal))
@@ -63,8 +63,8 @@ struct AnalysisResultView: View {
                                     .font(.caption.weight(.semibold))
                                     .padding(.horizontal, 9)
                                     .padding(.vertical, 5)
-                                    .background(.green.opacity(0.14), in: Capsule())
-                                    .foregroundStyle(.green)
+                                    .background(OMP.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                                    .foregroundStyle(.white)
                                 Text(meal.date ?? "-")
                                     .font(.subheadline)
                                     .foregroundStyle(.secondary)
@@ -102,7 +102,7 @@ struct AnalysisResultView: View {
             }
             .padding()
         }
-        .background(Color(.systemGroupedBackground))
+        .background(OMP.concrete)
         .navigationTitle(result.displayTitle)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -118,7 +118,7 @@ struct AnalysisResultView: View {
         HStack(spacing: 12) {
             Image(systemName: result.isSuccess ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                 .font(.system(size: 28))
-                .foregroundStyle(result.isSuccess ? .green : .orange)
+                .foregroundStyle(result.isSuccess ? OMP.green : OMP.amberText)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(result.displayMessage)

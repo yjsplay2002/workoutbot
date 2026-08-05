@@ -51,6 +51,8 @@ struct RecordsView: View {
                         }
                     }
                     .listStyle(.insetGrouped)
+                    .scrollContentBackground(.hidden)
+                    .background(OMP.concrete)
                     .refreshable {
                         await viewModel.load(configuration: configuration)
                     }
@@ -118,13 +120,13 @@ private struct WeeklyStatsCard: View {
                     title: "소모 합계",
                     value: Formatters.kcal(totalKcal),
                     systemImage: "flame.fill",
-                    tint: .orange
+                    tint: OMP.ink
                 )
                 MetricPill(
                     title: "세션",
                     value: "\(sessionCount)회",
                     systemImage: "figure.run",
-                    tint: .blue
+                    tint: OMP.ink
                 )
             }
 
@@ -134,7 +136,7 @@ private struct WeeklyStatsCard: View {
                         x: .value("요일", day.label),
                         y: .value("kcal", day.workoutKcal)
                     )
-                    .foregroundStyle(Color.blue.gradient)
+                    .foregroundStyle(OMP.panel)
                 }
                 .chartYAxis {
                     AxisMarks(position: .leading) { value in
@@ -169,11 +171,11 @@ private struct RecordRow: View {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     Text(record.category ?? "운동")
-                        .font(.caption.weight(.semibold))
+                        .font(.caption.weight(.bold))
                         .padding(.horizontal, 9)
                         .padding(.vertical, 5)
-                        .background(categoryColor(record.category).opacity(0.12), in: Capsule())
-                        .foregroundStyle(categoryColor(record.category))
+                        .background(OMP.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                        .foregroundStyle(.white)
 
                     Text(record.date ?? "-")
                         .font(.subheadline)
@@ -207,15 +209,4 @@ private struct RecordRow: View {
         .padding(.vertical, 4)
     }
 
-    private func categoryColor(_ category: String?) -> Color {
-        switch (category ?? "").lowercased() {
-        case "chest", "가슴": return .red
-        case "back", "등": return .blue
-        case "legs", "하체", "다리": return .green
-        case "shoulders", "어깨": return .orange
-        case "arms", "팔": return .purple
-        case "cardio", "유산소": return .pink
-        default: return .blue
-        }
-    }
 }

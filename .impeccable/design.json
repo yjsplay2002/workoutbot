@@ -1,0 +1,129 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-05T00:00:00+09:00",
+  "title": "Design System: OhMyPT",
+  "extensions": {
+    "colorMeta": {
+      "schiphol-yellow": { "role": "primary", "displayName": "스키폴 옐로", "canonical": "#FFC900", "tonalRamp": ["#332800", "#665000", "#997800", "#CCA000", "#FFC900", "#FFD84D", "#FFE585", "#FFF3C2"] },
+      "jet-black": { "role": "neutral", "displayName": "제트블랙", "canonical": "#0E0E0D", "tonalRamp": ["#0E0E0D", "#242422", "#3A3A37", "#5D5D57", "#8A8A82", "#B8B8B0", "#D9D9D2", "#EDEDE9"] },
+      "concrete": { "role": "neutral", "displayName": "콘크리트", "canonical": "#EDEDE9", "tonalRamp": ["#3B3B37", "#5D5D57", "#8A8A82", "#B0B0A8", "#CFCFC8", "#D9D9D2", "#EDEDE9", "#F8F8F5"] },
+      "green": { "role": "semantic-success", "displayName": "웨이파인딩 녹", "canonical": "#0E7A3C", "onPanelVariant": "#7BD8A0", "tint": "#0E7A3C14" },
+      "amber-text": { "role": "semantic-warning", "displayName": "앰버 텍스트", "canonical": "#9A6B00", "tint": "#9A6B0014" },
+      "red": { "role": "semantic-danger", "displayName": "웨이파인딩 적", "canonical": "#C42B1C", "onPanelVariant": "#FF7A6B", "tint": "#C42B1C12" }
+    },
+    "typographyMeta": {
+      "gate": { "displayName": "Gate", "purpose": "기념비 스케일 핵심 지표 — 남은 kcal, D-숫자. 화면당 1–2회. 모바일 clamp(1.9rem,9vw,2.6rem)." },
+      "value": { "displayName": "Value", "purpose": "보드 셀 숫자. 단위는 0.7rem/600/뮤트로 축소 첨부." },
+      "label": { "displayName": "Label", "purpose": "데이터 라벨·메타. 뮤트 색, 대문자·자간 벌림 없음." }
+    },
+    "shadows": [],
+    "motion": [
+      { "name": "ease-settle", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "표면 입장(settle 0.5s, -10px→0, 스태거 0.06s)과 화살표 hover(0.25s) 공용 이지. prefers-reduced-motion 게이트 필수." },
+      { "name": "duration-hover-bg", "value": "0.15s", "purpose": "카드 hover 배경 전환." }
+    ],
+    "breakpoints": [
+      { "name": "mobile", "value": "640px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Signband (옐로 안내 밴드)",
+      "kind": "custom",
+      "refersTo": "signband",
+      "description": "시그니처 웨이파인딩 표면 — 목표·안내 전용, 링크 시 모서리 고정 화살표.",
+      "html": "<a class=\"ds-signband\" href=\"#\"><span class=\"ds-picto\"><svg viewBox=\"0 0 24 24\"><path d=\"M12 3a9 9 0 1 1 0 18 9 9 0 0 1 0-18zm0 3.2a5.8 5.8 0 1 0 0 11.6 5.8 5.8 0 0 0 0-11.6zm0 3.3a2.5 2.5 0 1 1 0 5 2.5 2.5 0 0 1 0-5z\"/></svg></span><span><span class=\"ds-signband-title\">체지방 20.3 → 18.5kg</span><span class=\"ds-signband-sub\">2026-08-10 · 진행 42%</span></span><span class=\"ds-signband-arrow\"><svg viewBox=\"0 0 24 24\"><path d=\"M13.2 4.2 20 11v2l-6.8 6.8-2.1-2.1 3.9-3.9H4v-3.6h11l-3.9-3.9z\"/></svg></span></a>",
+      "css": ".ds-signband{background:#FFC900;color:#0E0E0D;border-radius:10px;padding:18px 20px;display:flex;align-items:center;gap:16px;text-decoration:none;font-family:'Pretendard Variable',Pretendard,sans-serif}.ds-signband:hover{background:#E9B800}.ds-signband:hover .ds-signband-arrow{transform:translateX(4px)}.ds-picto{width:38px;height:38px;border-radius:7px;background:#0E0E0D;color:#FFC900;display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}.ds-picto svg{width:22px;height:22px;fill:currentColor}.ds-signband-title{display:block;font-weight:800;font-size:1.02rem}.ds-signband-sub{display:block;color:#665000;font-size:.85rem;font-weight:600;margin-top:2px}.ds-signband-arrow{margin-left:auto;flex-shrink:0;transition:transform .25s cubic-bezier(.16,1,.3,1)}.ds-signband-arrow svg{width:34px;height:34px;fill:currentColor}"
+    },
+    {
+      "name": "Black Data Board",
+      "kind": "card",
+      "refersTo": "board",
+      "description": "제트블랙 숫자 전광판 — 라벨 위, 값 아래, 핵심 셀은 gate 스케일 + 옐로.",
+      "html": "<div class=\"ds-board\"><div class=\"ds-board-row\"><div class=\"ds-cell\"><div class=\"ds-label\">오늘 섭취</div><div class=\"ds-val\">1240<span class=\"ds-unit\">kcal</span></div></div><div class=\"ds-cell\"><div class=\"ds-label\">남은 허용</div><div class=\"ds-gate\">360<span class=\"ds-unit\">kcal</span></div></div></div></div>",
+      "css": ".ds-board{background:#0E0E0D;color:#fff;border-radius:10px;overflow:hidden;font-family:'Pretendard Variable',Pretendard,sans-serif;font-feature-settings:'tnum'}.ds-board-row{display:grid;grid-auto-flow:column;grid-auto-columns:1fr}.ds-cell{padding:16px 18px;border-left:1px solid #3A3A37}.ds-cell:first-child{border-left:none}.ds-label{font-size:.78rem;font-weight:600;color:#B8B8B0;margin-bottom:2px}.ds-val{font-size:1.5rem;font-weight:800;letter-spacing:-.01em;line-height:1.2}.ds-gate{font-size:clamp(2.2rem,6vw,4.6rem);font-weight:800;letter-spacing:-.02em;line-height:1.05;color:#FFC900}.ds-unit{font-size:.7rem;font-weight:600;color:#B8B8B0;margin-left:2px}"
+    },
+    {
+      "name": "White Sheet + Inset",
+      "kind": "card",
+      "refersTo": "sheet",
+      "description": "일반 콘텐츠 카드와 내부 지표 타일. 그림자 없음, 1px 보더.",
+      "html": "<div class=\"ds-sheet\"><div class=\"ds-sheet-title\">매크로 목표</div><div class=\"ds-inset\"><div class=\"ds-inset-label\">단백질 40%</div><div class=\"ds-inset-val\">98 / 145<span class=\"ds-inset-unit\">g</span></div><div class=\"ds-track\"><div class=\"ds-fill\" style=\"width:68%\"></div></div></div></div>",
+      "css": ".ds-sheet{background:#FFFFFF;border:1px solid #D9D9D2;border-radius:10px;padding:20px;font-family:'Pretendard Variable',Pretendard,sans-serif;font-feature-settings:'tnum';color:#151513}.ds-sheet-title{font-weight:800;margin-bottom:10px}.ds-inset{background:#F4F4F0;border-radius:7px;padding:12px 14px}.ds-inset-label{font-size:.78rem;font-weight:600;color:#5D5D57}.ds-inset-val{font-size:1.2rem;font-weight:800}.ds-inset-unit{font-size:.7rem;font-weight:600;color:#5D5D57;margin-left:2px}.ds-track{background:#E4E4DE;border-radius:4px;height:8px;overflow:hidden;margin-top:6px}.ds-fill{height:100%;background:#0E0E0D}"
+    },
+    {
+      "name": "Navigation (천장 안내판)",
+      "kind": "nav",
+      "refersTo": "navlink-active",
+      "description": "제트블랙 sticky 바 — 활성 링크는 옐로 배경 반전.",
+      "html": "<nav class=\"ds-nav\"><a class=\"ds-logo\" href=\"#\"><span class=\"ds-mark\"><svg viewBox=\"0 0 24 24\"><path d=\"M3 9h2v6H3zm16 0h2v6h-2zM6.5 7h2.3v10H6.5zm8.7 0h2.3v10h-2.3zM9.8 10.5h4.4v3H9.8z\"/></svg></span>OhMyPT</a><a class=\"ds-navlink ds-active\" href=\"#\">대시보드</a><a class=\"ds-navlink\" href=\"#\">목표</a><a class=\"ds-navlink\" href=\"#\">인바디</a></nav>",
+      "css": ".ds-nav{background:#0E0E0D;color:#fff;padding:0 20px;display:flex;align-items:stretch;gap:2px;min-height:56px;font-family:'Pretendard Variable',Pretendard,sans-serif}.ds-logo{display:flex;align-items:center;gap:10px;font-size:1.05rem;font-weight:800;letter-spacing:-.01em;color:#fff;margin-right:18px;text-decoration:none}.ds-mark{width:32px;height:32px;border-radius:6px;background:#FFC900;color:#0E0E0D;display:inline-flex;align-items:center;justify-content:center}.ds-mark svg{width:20px;height:20px;fill:currentColor}.ds-navlink{display:flex;align-items:center;padding:0 14px;color:#B8B8B0;font-size:.95rem;font-weight:600;text-decoration:none}.ds-navlink:hover{color:#fff}.ds-navlink.ds-active{background:#FFC900;color:#0E0E0D;font-weight:800}"
+    },
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "제트블랙 액션 버튼 — 옐로 버튼은 존재하지 않음.",
+      "html": "<button class=\"ds-btn-primary\">검색</button>",
+      "css": ".ds-btn-primary{background:#0E0E0D;color:#fff;border:none;padding:9px 20px;border-radius:7px;cursor:pointer;font-size:.9rem;font-weight:700;font-family:'Pretendard Variable',Pretendard,sans-serif}.ds-btn-primary:hover{background:#242422}.ds-btn-primary:focus-visible{outline:2px solid #0E0E0D;outline-offset:2px}"
+    },
+    {
+      "name": "Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "화이트 입력 필드 — focus는 흑색 2px 아웃라인, 글로우 없음.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"검색어\">",
+      "css": ".ds-input{background:#FFFFFF;border:1px solid #D9D9D2;color:#151513;padding:9px 12px;border-radius:7px;font-size:.9rem;font-family:'Pretendard Variable',Pretendard,sans-serif}.ds-input:focus{outline:2px solid #0E0E0D;outline-offset:-1px}"
+    },
+    {
+      "name": "Chips (카테고리 · kcal)",
+      "kind": "chip",
+      "refersTo": "badge",
+      "description": "카테고리 칩은 흑색 단일, kcal 칩은 시맨틱 틴트+텍스트, 배지는 옐로.",
+      "html": "<span class=\"ds-chip-cat\">하체</span> <span class=\"ds-chip-kcal-low\">180 kcal</span> <span class=\"ds-chip-kcal-mid\">420 kcal</span> <span class=\"ds-chip-kcal-high\">640 kcal</span> <span class=\"ds-badge\">트레이너</span>",
+      "css": ".ds-chip-cat{display:inline-block;padding:1px 8px;border-radius:5px;font-size:.74rem;font-weight:700;color:#fff;background:#0E0E0D;font-family:'Pretendard Variable',Pretendard,sans-serif}.ds-chip-kcal-low,.ds-chip-kcal-mid,.ds-chip-kcal-high{font-weight:700;padding:2px 10px;border-radius:5px;font-size:.8rem;display:inline-block;font-family:'Pretendard Variable',Pretendard,sans-serif}.ds-chip-kcal-low{background:#0E7A3C14;color:#0E7A3C}.ds-chip-kcal-mid{background:#9A6B0014;color:#9A6B00}.ds-chip-kcal-high{background:#C42B1C12;color:#C42B1C}.ds-badge{display:inline-block;padding:2px 8px;border-radius:5px;font-size:.72rem;font-weight:700;background:#FFC900;color:#0E0E0D;font-family:'Pretendard Variable',Pretendard,sans-serif}"
+    },
+    {
+      "name": "Data Table (rows)",
+      "kind": "custom",
+      "refersTo": "sheet",
+      "description": "숫자 우측 정렬, 행 상단 1px 보더만 — 세로선·줄무늬 없음.",
+      "html": "<table class=\"ds-rows\"><thead><tr><th class=\"ds-l\">날짜</th><th>섭취</th><th>당일 적자</th></tr></thead><tbody><tr><td class=\"ds-l\">08-04</td><td>1580</td><td class=\"ds-ok\">712</td></tr><tr><td class=\"ds-l\">08-03</td><td>2140</td><td class=\"ds-bad\">-96</td></tr></tbody></table>",
+      "css": ".ds-rows{width:100%;border-collapse:collapse;font-size:.86rem;font-family:'Pretendard Variable',Pretendard,sans-serif;font-feature-settings:'tnum';color:#151513}.ds-rows th{font-weight:600;color:#5D5D57;padding:7px 9px;text-align:right}.ds-rows td{padding:7px 9px;border-top:1px solid #D9D9D2;text-align:right}.ds-rows .ds-l{text-align:left}.ds-rows .ds-ok{font-weight:700;color:#0E7A3C}.ds-rows .ds-bad{font-weight:700;color:#C42B1C}"
+    }
+  ],
+  "narrative": {
+    "northStar": "터미널 옐로 웨이파인딩 (국제공항 사인 시스템)",
+    "overview": "개인 피트니스 기록을 공항 웨이파인딩으로 안내하는 세계. 목표는 게이트이고, 오늘 할 일은 다음 결정 지점이다. 다크 네온 피트니스 대시보드 문법을 명시적으로 거부한다. 화면은 세 가지 표면 재질 — 스키폴 옐로 안내 밴드(목표·웨이파인딩 전용), 제트블랙 데이터 보드, 화이트 시트 — 가 콘크리트 그라운드 위에 놓인다. 숫자가 주인공: 전역 tnum 타뷸러, 핵심 지표는 기념비 스케일. Pretendard 단일 패밀리(iOS는 Apple SD Gothic Neo 동일 보이스), 위계는 굵기 800/600과 크기만으로. 웹은 base/dashboard/login 풀 커밋, 나머지 템플릿은 1차 마이그레이션, iOS는 Theme.swift로 이식 중. seed key 7d2b41e4.",
+    "keyCharacteristics": [
+      "세 표면 재질: 옐로 사인밴드 / 제트블랙 보드 / 화이트 시트 — 콘크리트(#EDEDE9) 그라운드 위",
+      "옐로는 목표·안내에만 — 장식·상태 표시에 쓰지 않음",
+      "기념비 스케일 타뷸러 숫자, 굵기 800 위계",
+      "흑백 인셋 픽토그램(SVG 스프라이트, 컬러 아이콘 없음)",
+      "모서리 고정 화살표 = 이동 가능함의 유일한 신호",
+      "그림자 없음 — 재질 대비와 1px 보더로만 깊이 표현"
+    ],
+    "rules": [
+      { "name": "The Yellow-Is-Wayfinding Rule", "body": "옐로는 목표와 안내(다음 결정 지점)에만 쓴다. 상태 표시는 신호등 3색, 장식은 존재하지 않는다. 옐로가 흔해지는 순간 사인 시스템이 죽는다.", "section": "colors" },
+      { "name": "The On-Panel Shift Rule", "body": "시맨틱 색은 표면에 따라 두 벌 — 밝은 표면에서는 어두운 원색(#0E7A3C/#C42B1C), 제트블랙 보드 위에서는 밝힌 변형(#7BD8A0/#FF7A6B). 같은 hex를 두 표면에 재사용하지 않는다.", "section": "colors" },
+      { "name": "The Monochrome Chip Rule", "body": "운동 카테고리 칩은 전부 제트블랙(#0E0E0D), 미분류만 잉크 뮤트(#5D5D57)다. 카테고리별 컬러 코딩을 하지 않는다.", "section": "colors" },
+      { "name": "The Weight-Only Hierarchy Rule", "body": "강조는 굵기 800, 보조는 600+뮤트 색. 이탤릭·대문자·밑줄(링크 hover 제외)로 위계를 만들지 않는다.", "section": "typography" },
+      { "name": "The Shrunken Unit Rule", "body": "숫자 옆 단위는 항상 본체의 절반 이하 크기(0.68–0.78rem, 600, 뮤트 색)로 숫자에 밀착시킨다. 숫자가 주인공, 단위는 각주.", "section": "typography" },
+      { "name": "The No-Shadow Rule", "body": "box-shadow는 시스템에 존재하지 않는다. 표면을 띄우고 싶으면 재질(배경색)을 바꾼다.", "section": "elevation" },
+      { "name": "The Nested Radius Rule", "body": "컨테이너 10px > 내부 7px > 칩 5px > 트랙 4px. 안쪽 요소가 바깥보다 둥글어지지 않는다.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do 화면을 세 표면(옐로 밴드 / 블랙 보드 / 화이트 시트)으로 구성하고 콘크리트(#EDEDE9) 위에 놓는다.",
+      "Do 핵심 지표 하나를 gate 스케일(clamp 2.2–4.6rem, 800)로 승격하고 나머지는 .val(1.5rem)로 둔다.",
+      "Do 이동 가능한 표면 끝에 모서리 고정 화살표 픽토그램을 붙인다.",
+      "Do 블랙 보드 위 시맨틱은 밝힌 변형(#7BD8A0 / #FF7A6B)을 쓴다.",
+      "Do 새 아이콘이 필요하면 base.html 스프라이트에 24×24 단색 심볼로 추가하고 currentColor로 칠한다."
+    ],
+    "donts": [
+      "Don't 옐로를 목표·안내 외 용도(버튼, 상태, 장식, 차트 색)에 쓰지 않는다.",
+      "Don't box-shadow·그라디언트·글로우를 쓰지 않는다 — 다크 네온 피트니스 문법 전면 거부.",
+      "Don't 카테고리에 컬러 코딩을 하지 않는다 — 칩은 흑색 단일(CATEGORY_COLORS 전부 #0E0E0D).",
+      "Don't 컬러 아이콘·이모지 아이콘을 쓰지 않는다 — 픽토그램은 흑백 단색 SVG만.",
+      "Don't pill 라운드·원형 컨테이너를 쓰지 않는다 — 최대 라운드는 10px."
+    ]
+  }
+}

@@ -58,7 +58,7 @@ struct TodayView: View {
                 }
                 .padding()
             }
-            .background(Color(.systemGroupedBackground))
+            .background(OMP.concrete)
             .navigationTitle("오늘")
             .toolbar {
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -109,24 +109,18 @@ private struct TodayHeaderView: View {
     let summary: AppSummary
 
     var body: some View {
-        HStack(alignment: .center, spacing: 12) {
-            Image(systemName: "figure.strengthtraining.traditional")
-                .font(.system(size: 34, weight: .semibold))
-                .foregroundStyle(.white)
-                .frame(width: 58, height: 58)
-                .background(.blue.gradient, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-
-            VStack(alignment: .leading, spacing: 4) {
+        SignBand(showArrow: false) {
+            PictoInset(systemImage: "figure.strengthtraining.traditional", size: 46, onYellow: true)
+            VStack(alignment: .leading, spacing: 2) {
                 Text("\(summary.name)님")
-                    .font(.title2.weight(.bold))
+                    .font(.title2.weight(.heavy))
+                    .foregroundStyle(OMP.panel)
                 Text(summary.date)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(OMP.yellowInk)
             }
-
-            Spacer()
+            Spacer(minLength: 0)
         }
-        .cardStyle()
     }
 }
 
@@ -140,8 +134,8 @@ private struct QuickActionsCard: View {
                 .font(.headline)
 
             HStack(spacing: 12) {
-                ActionButton(title: "사진", systemImage: "camera.fill", tint: .blue, action: onPhoto)
-                ActionButton(title: "텍스트", systemImage: "text.badge.plus", tint: .indigo, action: onText)
+                ActionButton(title: "사진", systemImage: "camera.fill", tint: OMP.panel, action: onPhoto)
+                ActionButton(title: "텍스트", systemImage: "text.badge.plus", tint: OMP.panel, action: onText)
             }
         }
         .cardStyle()
@@ -179,33 +173,39 @@ private struct CaloriesCard: View {
         return min(max(intake / target, 0), 1)
     }
 
+    private var remaining: Double? {
+        guard let intake = today.intakeKcal, let target = today.targetKcal else { return nil }
+        return target - intake
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("오늘 칼로리", systemImage: "flame.fill")
-                .font(.headline)
-                .foregroundStyle(.primary)
-
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(Formatters.kcal(today.intakeKcal))
-                        .font(.system(.largeTitle, design: .rounded, weight: .bold))
-                    Text("/ \(Formatters.kcal(today.targetKcal))")
-                        .font(.headline)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                }
-
-                ProgressView(value: progress)
-                    .tint(progress >= 1 ? .green : .blue)
-                    .scaleEffect(x: 1, y: 1.4, anchor: .center)
+        VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                BoardCell(label: "오늘 섭취", value: Formatters.kcal(today.intakeKcal))
+                Rectangle().fill(OMP.panelLine).frame(width: 1, height: 44)
+                BoardCell(label: "목표 섭취", value: Formatters.kcal(today.targetKcal))
             }
 
-            HStack(spacing: 12) {
-                MetricPill(title: "운동 소모", value: Formatters.kcal(today.exerciseKcal), systemImage: "bolt.heart.fill", tint: .orange)
-                MetricPill(title: "TDEE", value: Formatters.kcal(today.tdee), systemImage: "speedometer", tint: .purple)
+            if let remaining {
+                BoardCell(
+                    label: remaining < 0 ? "초과" : "남은 허용",
+                    value: Formatters.kcal(abs(remaining)),
+                    valueColor: remaining < 0 ? OMP.redOnPanel : OMP.yellow,
+                    gate: true
+                )
+            }
+
+            ProgressView(value: progress)
+                .tint(progress >= 1 ? OMP.redOnPanel : OMP.yellow)
+                .scaleEffect(x: 1, y: 1.4, anchor: .center)
+
+            HStack(alignment: .top, spacing: 12) {
+                BoardCell(label: "운동 소모", value: Formatters.kcal(today.exerciseKcal))
+                Rectangle().fill(OMP.panelLine).frame(width: 1, height: 44)
+                BoardCell(label: "TDEE", value: Formatters.kcal(today.tdee))
             }
         }
-        .cardStyle()
+        .boardStyle()
     }
 }
 
@@ -217,9 +217,9 @@ private struct MacroCard: View {
             Label("매크로 목표", systemImage: "chart.bar.fill")
                 .font(.headline)
 
-            MacroRow(name: "단백질", current: today.proteinG, target: today.macros?.proteinG, tint: .red)
-            MacroRow(name: "탄수화물", current: today.carbsG, target: today.macros?.carbsG, tint: .green)
-            MacroRow(name: "지방", current: today.fatG, target: today.macros?.fatG, tint: .yellow)
+            MacroRow(name: "단백질", current: today.proteinG, target: today.macros?.proteinG, tint: OMP.panel)
+            MacroRow(name: "탄수화물", current: today.carbsG, target: today.macros?.carbsG, tint: OMP.panel)
+            MacroRow(name: "지방", current: today.fatG, target: today.macros?.fatG, tint: OMP.panel)
         }
         .cardStyle()
     }
@@ -278,8 +278,8 @@ private struct CreatineGuideCard: View {
                     }
 
                     Text("한 줄: 점심·저녁 식사에 각각 붙이고, 쉬는 날 포함 매일.")
-                        .font(.footnote.weight(.semibold))
-                        .foregroundStyle(.blue)
+                        .font(.footnote.weight(.bold))
+                        .foregroundStyle(OMP.ink)
                 }
                 .padding(.top, 8)
             } label: {
@@ -298,7 +298,7 @@ private struct CreatineGuideCard: View {
                     .font(.subheadline.weight(.bold))
                 Text(time)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(OMP.green)
             }
             Text(reason)
                 .font(.caption)
@@ -306,7 +306,7 @@ private struct CreatineGuideCard: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
-        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(OMP.inset, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
     private func tipLine(_ text: String) -> some View {
@@ -325,9 +325,9 @@ private struct DeficitCard: View {
 
     private var achievementColor: Color {
         let pct = deficit.achievementPct ?? 0
-        if pct >= 100 { return .green }
-        if pct < 80 { return .red }
-        return .orange
+        if pct >= 100 { return OMP.green }
+        if pct < 80 { return OMP.red }
+        return OMP.amberText
     }
 
     var body: some View {
@@ -338,11 +338,11 @@ private struct DeficitCard: View {
                 Spacer()
                 if let daysLeft = deficit.daysLeft {
                     Text("D-\(max(daysLeft, 0))")
-                        .font(.caption.weight(.bold))
+                        .font(.subheadline.weight(.heavy).monospacedDigit())
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
-                        .background(.blue.opacity(0.14), in: Capsule())
-                        .foregroundStyle(.blue)
+                        .background(OMP.yellow, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                        .foregroundStyle(OMP.panel)
                 }
             }
 
@@ -398,9 +398,9 @@ private struct PlanCard: View {
                         .foregroundStyle(.secondary)
                 }
 
-                mealBlock("🌅 아침", plan.breakfastSuggestion)
-                mealBlock("☀️ 점심", plan.lunchSuggestion)
-                mealBlock("🌙 저녁", plan.dinnerSuggestion)
+                mealBlock("아침", plan.breakfastSuggestion)
+                mealBlock("점심", plan.lunchSuggestion)
+                mealBlock("저녁", plan.dinnerSuggestion)
 
                 if let rationale = plan.rationaleText, !rationale.isEmpty {
                     Text(HTMLText.plain(rationale))
@@ -512,7 +512,6 @@ private struct CoachSummaryCard: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .tint(.indigo)
                 .disabled(isGenerating)
 
                 if summary != nil {
@@ -573,7 +572,7 @@ private struct GoalLine: View {
     var body: some View {
         HStack(spacing: 8) {
             Image(systemName: "flag.checkered")
-                .foregroundStyle(.blue)
+                .foregroundStyle(OMP.ink2)
             Text("\(deficit.label ?? goal.metric) 목표 \(Formatters.decimal(goal.targetValue))\(deficit.unit ?? "")")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)

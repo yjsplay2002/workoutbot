@@ -32,7 +32,7 @@
     <div class="rm"><div class="v">{{ log_days }}<span style="font-size:.5em"> / 7일</span></div><div class="l">📅 기록한 날</div></div>
     {% if avg_kcal %}<div class="rm"><div class="v">{{ avg_kcal }}<span style="font-size:.5em"> kcal</span></div><div class="l">🍽️ 평균 섭취</div></div>{% endif %}
     {% if avg_protein %}<div class="rm"><div class="v">{{ avg_protein }}<span style="font-size:.5em"> g</span></div><div class="l">🥩 평균 단백질</div></div>{% endif %}
-    <div class="rm"><div class="v" style="color:#a29bfe">{{ workout_kcal }}<span style="font-size:.5em"> kcal</span></div><div class="l">🔥 운동 소비</div></div>
+    <div class="rm"><div class="v" style="color:#151513">{{ workout_kcal }}<span style="font-size:.5em"> kcal</span></div><div class="l">🔥 운동 소비</div></div>
     {% if dp and dp.available and dp.achievement_pct is not none %}
     <div class="rm"><div class="v" style="color:{% if dp.achievement_pct >= 100 %}var(--green){% elif dp.achievement_pct < 80 %}var(--red){% else %}var(--accent){% endif %}">{{ dp.achievement_pct }}%</div><div class="l">📉 목표 {{ '적자' if dp.direction=='deficit' else '잉여' }} 달성</div></div>
     {% endif %}
