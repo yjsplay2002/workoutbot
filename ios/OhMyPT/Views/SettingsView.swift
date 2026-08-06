@@ -16,7 +16,7 @@ struct SettingsView: View {
             if showOnboardingMessage {
                 Section {
                     Label("앱을 사용하려면 서버 URL과 텔레그램 user_id가 필요합니다.", systemImage: "person.crop.circle.badge.checkmark")
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
             }
 
@@ -33,13 +33,15 @@ struct SettingsView: View {
                 }
             }
 
-            Section("사용자") {
+            Section {
                 TextField("텔레그램 user_id", text: numericUserIDBinding)
                     .keyboardType(.numberPad)
 
                 SecureField("앱 토큰 (선택)", text: $appToken)
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
+            } header: {
+                Text("사용자")
             } footer: {
                 Text("서버에 APP_API_TOKEN이 설정된 경우에만 앱 토큰을 입력하세요.")
             }
@@ -58,10 +60,10 @@ struct SettingsView: View {
             Section("앱 안내") {
                 Label("사진·텍스트로 운동/식단/인바디를 기록합니다.", systemImage: "camera.viewfinder")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
                 Label("플랜·요약은 목표 등록 후 오늘 탭에서 생성합니다.", systemImage: "calendar")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             }
         }
         .navigationTitle("설정")

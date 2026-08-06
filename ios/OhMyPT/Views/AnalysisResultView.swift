@@ -21,7 +21,7 @@ struct AnalysisResultView: View {
                                     .foregroundStyle(.white)
                                 Text(record.date ?? "-")
                                     .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(OMP.ink2)
                                 if record.merged == true {
                                     Text("병합")
                                         .font(.caption2.weight(.bold))
@@ -45,7 +45,7 @@ struct AnalysisResultView: View {
                                 Divider()
                                 Text("분석")
                                     .font(.caption.weight(.semibold))
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(OMP.ink2)
                                 Text(HTMLText.plain(analysis))
                                     .font(.subheadline)
                                     .textSelection(.enabled)
@@ -67,7 +67,7 @@ struct AnalysisResultView: View {
                                     .foregroundStyle(.white)
                                 Text(meal.date ?? "-")
                                     .font(.subheadline)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(OMP.ink2)
                                 Spacer()
                                 Text(Formatters.kcal(meal.estimatedKcal))
                                     .font(.subheadline.monospacedDigit())
@@ -126,7 +126,7 @@ struct AnalysisResultView: View {
                 if let confidence = result.confidence {
                     Text(String(format: "신뢰도 %.0f%%", confidence * 100))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
             }
             Spacer()
@@ -160,7 +160,7 @@ struct AnalysisResultView: View {
         if meal.proteinG != nil || meal.carbsG != nil || meal.fatG != nil {
             Text("P \(Formatters.grams(meal.proteinG)) · C \(Formatters.grams(meal.carbsG)) · F \(Formatters.grams(meal.fatG))")
                 .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
         }
     }
 

@@ -136,7 +136,7 @@ private struct WeeklyStatsCard: View {
                         x: .value("요일", day.label),
                         y: .value("kcal", day.workoutKcal)
                     )
-                    .foregroundStyle(OMP.panel)
+                    .foregroundStyle(OMP.ink)
                 }
                 .chartYAxis {
                     AxisMarks(position: .leading) { value in
@@ -154,7 +154,7 @@ private struct WeeklyStatsCard: View {
             } else {
                 Text("최근 7일 운동 데이터가 없습니다.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.vertical, 8)
             }
@@ -179,19 +179,19 @@ private struct RecordRow: View {
 
                     Text(record.date ?? "-")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
 
                 if let preview = record.structuredMd?.trimmingCharacters(in: .whitespacesAndNewlines),
                    !preview.isEmpty {
                     Text(HTMLText.plain(preview))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                         .lineLimit(2)
                 } else if let createdAt = record.createdAt, !createdAt.isEmpty {
                     Text(createdAt)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(OMP.ink2.opacity(0.7))
                 }
             }
 
@@ -202,7 +202,7 @@ private struct RecordRow: View {
                     .font(.headline.monospacedDigit())
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(OMP.ink2.opacity(0.7))
             }
         }
         .contentShape(Rectangle())

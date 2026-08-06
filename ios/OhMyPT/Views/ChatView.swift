@@ -44,7 +44,7 @@ struct ChatView: View {
                             ProgressView().controlSize(.small)
                             Text("분석 중…")
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(OMP.ink2)
                         }
                         .id("typing")
                     }
@@ -67,7 +67,7 @@ struct ChatView: View {
                 .font(.headline)
             Text("“닭가슴살 샐러드 먹었어”, “하체 운동 50분 했어”, 식단·운동·인바디 사진 — 말하거나 찍으면 자동으로 기록됩니다.")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
         }
         .padding(.top, 32)
     }
@@ -85,7 +85,7 @@ struct ChatView: View {
                         viewModel.pendingImage = nil
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(OMP.ink2)
                     }
                     Spacer()
                 }
@@ -96,7 +96,7 @@ struct ChatView: View {
                 PhotosPicker(selection: $photoSelection, matching: .images) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 26))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
                 .onChange(of: photoSelection) { newItem in
                     guard let newItem else { return }
@@ -182,7 +182,7 @@ private struct ChatCardView: View {
                     HStack(alignment: .top) {
                         Text(cleanHTML(row[0]))
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(OMP.ink2)
                         Spacer(minLength: 12)
                         Text(cleanHTML(row[1]))
                             .font(.footnote.weight(.semibold))
@@ -195,7 +195,7 @@ private struct ChatCardView: View {
             if let meta = card.meta, !meta.isEmpty {
                 Text(meta)
                     .font(.caption2)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(OMP.ink2.opacity(0.7))
             }
         }
         .padding(12)

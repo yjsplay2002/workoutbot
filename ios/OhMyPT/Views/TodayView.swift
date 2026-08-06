@@ -45,7 +45,7 @@ struct TodayView: View {
                         if let action = viewModel.actionMessage {
                             Text(action)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(OMP.ink2)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     } else if !viewModel.isLoading && viewModel.errorMessage == nil {
@@ -134,8 +134,8 @@ private struct QuickActionsCard: View {
                 .font(.headline)
 
             HStack(spacing: 12) {
-                ActionButton(title: "사진", systemImage: "camera.fill", tint: OMP.panel, action: onPhoto)
-                ActionButton(title: "텍스트", systemImage: "text.badge.plus", tint: OMP.panel, action: onText)
+                ActionButton(title: "사진", systemImage: "camera.fill", tint: OMP.ink, action: onPhoto)
+                ActionButton(title: "텍스트", systemImage: "text.badge.plus", tint: OMP.ink, action: onText)
             }
         }
         .cardStyle()
@@ -217,9 +217,9 @@ private struct MacroCard: View {
             Label("매크로 목표", systemImage: "chart.bar.fill")
                 .font(.headline)
 
-            MacroRow(name: "단백질", current: today.proteinG, target: today.macros?.proteinG, tint: OMP.panel)
-            MacroRow(name: "탄수화물", current: today.carbsG, target: today.macros?.carbsG, tint: OMP.panel)
-            MacroRow(name: "지방", current: today.fatG, target: today.macros?.fatG, tint: OMP.panel)
+            MacroRow(name: "단백질", current: today.proteinG, target: today.macros?.proteinG, tint: OMP.ink)
+            MacroRow(name: "탄수화물", current: today.carbsG, target: today.macros?.carbsG, tint: OMP.ink)
+            MacroRow(name: "지방", current: today.fatG, target: today.macros?.fatG, tint: OMP.ink)
         }
         .cardStyle()
     }
@@ -244,7 +244,7 @@ private struct MacroRow: View {
                 Spacer()
                 Text("\(Formatters.grams(current)) / \(Formatters.grams(target))")
                     .font(.subheadline.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             }
 
             ProgressView(value: progress)
@@ -262,7 +262,7 @@ private struct CreatineGuideCard: View {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("타이밍보다 **매일 빠짐없이**가 압도적으로 중요 — 근육에 쌓이는 저장형 보충제. 총 6g은 체중 77kg에 적절(5~7g 범위), 3g 분할로 위장 부담 없음. 로딩 없이 약 3~4주면 포화.")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
 
                     doseRow(order: "1회차 3g", time: "운동 직후 점심 (13시)",
                             reason: "탄수+단백질과 함께 → 인슐린이 근육 흡수 도움")
@@ -285,7 +285,7 @@ private struct CreatineGuideCard: View {
             } label: {
                 Label("크레아틴 3g × 2회 (점심·저녁)", systemImage: "pills.fill")
                     .font(.headline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(OMP.ink)
             }
         }
         .cardStyle()
@@ -302,7 +302,7 @@ private struct CreatineGuideCard: View {
             }
             Text(reason)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(10)
@@ -315,7 +315,7 @@ private struct CreatineGuideCard: View {
             Text(text)
         }
         .font(.caption)
-        .foregroundStyle(.secondary)
+        .foregroundStyle(OMP.ink2)
     }
 }
 
@@ -395,7 +395,7 @@ private struct PlanCard: View {
                 if let burn = plan.targetKcalBurn {
                     Text("권장 소모 \(Formatters.kcal(burn))")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
 
                 mealBlock("아침", plan.breakfastSuggestion)
@@ -405,38 +405,41 @@ private struct PlanCard: View {
                 if let rationale = plan.rationaleText, !rationale.isEmpty {
                     Text(HTMLText.plain(rationale))
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
             } else if let error = plan?.error {
                 Text(error)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             } else {
                 Text("아직 생성된 플랜이 없습니다. 목표 등록 후 생성해 보세요.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             }
 
             HStack(spacing: 10) {
                 Button {
                     onGenerate(false)
                 } label: {
-                    if isGenerating {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text(plan == nil ? "플랜 생성" : "플랜 불러오기")
-                            .frame(maxWidth: .infinity)
+                    Group {
+                        if isGenerating {
+                            ProgressView().tint(OMP.sheet)
+                        } else {
+                            Text(plan == nil ? "플랜 생성" : "플랜 불러오기")
+                        }
                     }
+                    .ompProminent()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(isGenerating)
 
                 if plan != nil {
-                    Button("재생성") {
+                    Button {
                         onGenerate(true)
+                    } label: {
+                        Text("재생성").ompSecondary()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .disabled(isGenerating)
                 }
             }
@@ -450,7 +453,7 @@ private struct PlanCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
                 Text(HTMLText.plain(html))
                     .font(.subheadline)
             }
@@ -479,7 +482,7 @@ private struct CoachSummaryCard: View {
                     Divider()
                     Text("목표 평가")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                     Text(HTMLText.plain(assess))
                         .font(.subheadline)
                         .textSelection(.enabled)
@@ -487,38 +490,41 @@ private struct CoachSummaryCard: View {
                 if (summary.summaryMd ?? "").isEmpty && (summary.goalAssessmentMd ?? "").isEmpty {
                     Text("요약 내용이 비어 있습니다.")
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(OMP.ink2)
                 }
             } else if let error = summary?.error {
                 Text(error)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             } else {
                 Text("하루 기록을 바탕으로 코치 요약을 생성할 수 있습니다.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             }
 
             HStack(spacing: 10) {
                 Button {
                     onGenerate(false)
                 } label: {
-                    if isGenerating {
-                        ProgressView()
-                            .frame(maxWidth: .infinity)
-                    } else {
-                        Text(summary == nil ? "요약 생성" : "요약 불러오기")
-                            .frame(maxWidth: .infinity)
+                    Group {
+                        if isGenerating {
+                            ProgressView().tint(OMP.sheet)
+                        } else {
+                            Text(summary == nil ? "요약 생성" : "요약 불러오기")
+                        }
                     }
+                    .ompProminent()
                 }
-                .buttonStyle(.borderedProminent)
+                .buttonStyle(.plain)
                 .disabled(isGenerating)
 
                 if summary != nil {
-                    Button("재생성") {
+                    Button {
                         onGenerate(true)
+                    } label: {
+                        Text("재생성").ompSecondary()
                     }
-                    .buttonStyle(.bordered)
+                    .buttonStyle(.plain)
                     .disabled(isGenerating)
                 }
             }
@@ -538,7 +544,7 @@ private struct RecentRecordsCard: View {
             if records.isEmpty {
                 Text("최근 운동 기록이 없습니다.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ForEach(records.prefix(5)) { record in
@@ -548,14 +554,14 @@ private struct RecentRecordsCard: View {
                                 .font(.subheadline.weight(.semibold))
                             Text(record.date ?? "-")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(OMP.ink2)
                         }
 
                         Spacer()
 
                         Text(Formatters.kcal(record.estimatedKcal))
                             .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(OMP.ink2)
                     }
                     .padding(.vertical, 4)
                 }
@@ -575,12 +581,12 @@ private struct GoalLine: View {
                 .foregroundStyle(OMP.ink2)
             Text("\(deficit.label ?? goal.metric) 목표 \(Formatters.decimal(goal.targetValue))\(deficit.unit ?? "")")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
             Spacer()
             if let targetDate = goal.targetDate {
                 Text(targetDate)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             }
         }
     }

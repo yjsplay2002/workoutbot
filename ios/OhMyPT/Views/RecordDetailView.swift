@@ -65,7 +65,7 @@ private struct DetailSection: View {
             } else {
                 Text("내용이 없습니다.")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
             }
         }
         .cardStyle()

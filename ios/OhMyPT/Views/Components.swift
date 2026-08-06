@@ -8,7 +8,7 @@ struct LoadingView: View {
             ProgressView()
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
         }
         .frame(maxWidth: .infinity, minHeight: 180)
     }
@@ -23,12 +23,12 @@ struct StateMessageView: View {
         VStack(spacing: 10) {
             Image(systemName: systemImage)
                 .font(.system(size: 30, weight: .semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
             Text(title)
                 .font(.headline)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
@@ -49,7 +49,7 @@ struct MetricPill: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(OMP.ink2)
                 Text(value)
                     .font(.subheadline.weight(.semibold).monospacedDigit())
                     .lineLimit(1)
@@ -66,13 +66,13 @@ struct MetricPill: View {
 struct MetricTile: View {
     let title: String
     let value: String
-    var valueColor: Color = .primary
+    var valueColor: Color = OMP.ink
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(title)
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(OMP.ink2)
             Text(value)
                 .font(.headline.weight(.heavy).monospacedDigit())
                 .foregroundStyle(valueColor)
