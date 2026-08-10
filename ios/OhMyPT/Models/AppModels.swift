@@ -68,6 +68,27 @@ struct WorkoutRecord: Codable, Identifiable, Hashable {
     let merged: Bool?
 }
 
+struct MealEntry: Codable, Identifiable, Hashable {
+    let id: Int
+    let date: String?
+    let mealType: String?
+    let structuredMd: String?
+    let estimatedKcal: Double?
+    let proteinG: Double?
+    let carbsG: Double?
+    let fatG: Double?
+
+    var mealTypeLabel: String {
+        switch mealType {
+        case "breakfast": return "아침"
+        case "lunch": return "점심"
+        case "dinner": return "저녁"
+        case "snack": return "간식"
+        default: return mealType ?? "식사"
+        }
+    }
+}
+
 // MARK: - Write / analysis results
 
 struct AnalysisResult: Codable {

@@ -1149,6 +1149,22 @@ async def api_app_summary(request: Request, user_id: int):
     })
 
 
+@app.get("/api/app/meals")
+async def api_app_meals(request: Request, user_id: int, limit: int = Query(60, le=200), offset: int = 0):
+    """Recent meal entries for the native iOS app, newest first."""
+    if not _check_app_token(request):
+        return JSONResponse({"error": "unauthorized"}, status_code=401)
+
+    conn = get_conn()
+    rows = conn.execute(
+        "SELECT id, date, meal_type, structured_md, estimated_kcal, protein_g, carbs_g, fat_g "
+        "FROM meals WHERE user_id=? ORDER BY date DESC, id DESC LIMIT ? OFFSET ?",
+        (user_id, limit, offset),
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 # ── Native app write APIs (upload / text record / plan / summary) ─
 
 def _app_today_str() -> str:

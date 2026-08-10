@@ -65,6 +65,14 @@ struct APIClient {
         return try await request(url)
     }
 
+    func fetchMeals(limit: Int = 60) async throws -> [MealEntry] {
+        let url = try makeURL(path: "api/app/meals", queryItems: [
+            URLQueryItem(name: "user_id", value: String(try requireUserID())),
+            URLQueryItem(name: "limit", value: String(limit))
+        ])
+        return try await request(url)
+    }
+
     // MARK: - Write
 
     func uploadPhoto(image: UIImage, caption: String) async throws -> AnalysisResult {

@@ -3,6 +3,7 @@ import Foundation
 @MainActor
 final class RecordsViewModel: ObservableObject {
     @Published private(set) var records: [WorkoutRecord] = []
+    @Published private(set) var meals: [MealEntry] = []
     @Published private(set) var weeklyStats: [DayStat] = []
     @Published private(set) var weekWorkoutKcal: Double = 0
     @Published private(set) var weekSessionCount: Int = 0
@@ -24,11 +25,16 @@ final class RecordsViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            let loaded = try await APIClient(configuration: configuration).fetchRecords(limit: 50)
+            let client = APIClient(configuration: configuration)
+            async let recordsTask = client.fetchRecords(limit: 50)
+            async let mealsTask = client.fetchMeals(limit: 60)
+            let loaded = try await recordsTask
             records = loaded
+            meals = (try? await mealsTask) ?? []
             recomputeWeekly(from: loaded)
         } catch {
             records = []
+            meals = []
             weeklyStats = []
             weekWorkoutKcal = 0
             weekSessionCount = 0

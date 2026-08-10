@@ -2,11 +2,30 @@ import Charts
 import SwiftUI
 
 struct RecordsView: View {
+    enum Segment: String, CaseIterable {
+        case workouts = "운동"
+        case meals = "식단"
+    }
+
     let configuration: AppConfiguration
     @StateObject private var viewModel = RecordsViewModel()
+    @State private var segment: Segment = .workouts
     @State private var selectedRecord: WorkoutRecord?
     @State private var showPhotoUpload = false
     @State private var showTextRecord = false
+
+    private var mealDays: [(date: String, meals: [MealEntry], totalKcal: Double, totalProtein: Double)] {
+        let grouped = Dictionary(grouping: viewModel.meals) { $0.date ?? "-" }
+        return grouped.keys.sorted(by: >).map { date in
+            let dayMeals = grouped[date] ?? []
+            return (
+                date: date,
+                meals: dayMeals,
+                totalKcal: dayMeals.compactMap(\.estimatedKcal).reduce(0, +),
+                totalProtein: dayMeals.compactMap(\.proteinG).reduce(0, +)
+            )
+        }
+    }
 
     var body: some View {
         NavigationStack {
@@ -19,35 +38,74 @@ struct RecordsView: View {
                 } else {
                     List {
                         Section {
-                            WeeklyStatsCard(
-                                stats: viewModel.weeklyStats,
-                                totalKcal: viewModel.weekWorkoutKcal,
-                                sessionCount: viewModel.weekSessionCount
-                            )
-                            .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
+                            Picker("종류", selection: $segment) {
+                                ForEach(Segment.allCases, id: \.self) { seg in
+                                    Text(seg.rawValue).tag(seg)
+                                }
+                            }
+                            .pickerStyle(.segmented)
+                            .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                             .listRowBackground(Color.clear)
                         }
 
-                        Section {
-                            if viewModel.records.isEmpty {
-                                StateMessageView(
-                                    title: "기록 없음",
-                                    message: "사진이나 텍스트로 첫 운동을 남겨 보세요.",
-                                    systemImage: "tray"
+                        if segment == .workouts {
+                            Section {
+                                WeeklyStatsCard(
+                                    stats: viewModel.weeklyStats,
+                                    totalKcal: viewModel.weekWorkoutKcal,
+                                    sessionCount: viewModel.weekSessionCount
                                 )
+                                .listRowInsets(EdgeInsets(top: 8, leading: 16, bottom: 8, trailing: 16))
                                 .listRowBackground(Color.clear)
-                            } else {
-                                ForEach(viewModel.records) { record in
-                                    Button {
-                                        selectedRecord = record
-                                    } label: {
-                                        RecordRow(record: record)
+                            }
+
+                            Section {
+                                if viewModel.records.isEmpty {
+                                    StateMessageView(
+                                        title: "기록 없음",
+                                        message: "사진이나 텍스트로 첫 운동을 남겨 보세요.",
+                                        systemImage: "tray"
+                                    )
+                                    .listRowBackground(Color.clear)
+                                } else {
+                                    ForEach(viewModel.records) { record in
+                                        Button {
+                                            selectedRecord = record
+                                        } label: {
+                                            RecordRow(record: record)
+                                        }
+                                        .buttonStyle(.plain)
                                     }
-                                    .buttonStyle(.plain)
+                                }
+                            } header: {
+                                Text("최근 기록")
+                            }
+                        } else {
+                            if viewModel.meals.isEmpty {
+                                Section {
+                                    StateMessageView(
+                                        title: "식단 기록 없음",
+                                        message: "코치 탭에서 “닭가슴살 샐러드 먹었어”라고 말하거나 사진을 보내면 저장됩니다.",
+                                        systemImage: "fork.knife"
+                                    )
+                                    .listRowBackground(Color.clear)
+                                }
+                            } else {
+                                ForEach(mealDays, id: \.date) { day in
+                                    Section {
+                                        ForEach(day.meals) { meal in
+                                            MealRow(meal: meal)
+                                        }
+                                    } header: {
+                                        HStack {
+                                            Text(day.date)
+                                            Spacer()
+                                            Text("\(Formatters.kcal(day.totalKcal)) · 단백질 \(Formatters.grams(day.totalProtein))")
+                                                .monospacedDigit()
+                                        }
+                                    }
                                 }
                             }
-                        } header: {
-                            Text("최근 기록")
                         }
                     }
                     .listStyle(.insetGrouped)
@@ -58,7 +116,7 @@ struct RecordsView: View {
                     }
                 }
             }
-            .navigationTitle("운동 기록")
+            .navigationTitle("기록")
             .toolbar {
                 ToolbarItemGroup(placement: .navigationBarTrailing) {
                     if viewModel.isLoading {
@@ -209,4 +267,44 @@ private struct RecordRow: View {
         .padding(.vertical, 4)
     }
 
+}
+
+private struct MealRow: View {
+    let meal: MealEntry
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(meal.mealTypeLabel)
+                .font(.caption.weight(.bold))
+                .padding(.horizontal, 9)
+                .padding(.vertical, 5)
+                .background(OMP.panel, in: RoundedRectangle(cornerRadius: 5, style: .continuous))
+                .foregroundStyle(.white)
+                .frame(width: 52)
+
+            VStack(alignment: .leading, spacing: 4) {
+                if let md = meal.structuredMd?.trimmingCharacters(in: .whitespacesAndNewlines), !md.isEmpty {
+                    Text(HTMLText.plain(md))
+                        .font(.subheadline)
+                        .lineLimit(3)
+                } else {
+                    Text("내용 없음")
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
+                if meal.proteinG != nil || meal.carbsG != nil || meal.fatG != nil {
+                    Text("단백질 \(Formatters.grams(meal.proteinG)) · 탄수 \(Formatters.grams(meal.carbsG)) · 지방 \(Formatters.grams(meal.fatG))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .monospacedDigit()
+                }
+            }
+
+            Spacer(minLength: 8)
+
+            Text(Formatters.kcal(meal.estimatedKcal))
+                .font(.subheadline.weight(.heavy).monospacedDigit())
+        }
+        .padding(.vertical, 4)
+    }
 }

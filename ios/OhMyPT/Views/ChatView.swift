@@ -14,14 +14,14 @@ struct ChatView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                messageList
-                inputBar
-            }
-            .background(OMP.concrete)
-            .navigationTitle("OhMyPT")
-            .navigationBarTitleDisplayMode(.inline)
-            .task { await viewModel.loadHistory() }
+            messageList
+                .background(OMP.concrete)
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    inputBar
+                }
+                .navigationTitle("코치")
+                .navigationBarTitleDisplayMode(.inline)
+                .task { await viewModel.loadHistory() }
         }
     }
 
@@ -62,14 +62,56 @@ struct ChatView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("무엇이든 던져보세요")
-                .font(.headline)
-            Text("“닭가슴살 샐러드 먹었어”, “하체 운동 50분 했어”, 식단·운동·인바디 사진 — 말하거나 찍으면 자동으로 기록됩니다.")
-                .font(.subheadline)
-                .foregroundStyle(OMP.ink2)
+        VStack(alignment: .leading, spacing: 14) {
+            SignBand(showArrow: false) {
+                PictoInset(systemImage: "bubble.left.and.text.bubble.right.fill", size: 46, onYellow: true)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("말하면 기록됩니다")
+                        .font(.title3.weight(.heavy))
+                        .foregroundStyle(OMP.panel)
+                    Text("식단 · 운동 · 인바디 — 텍스트나 사진 한 번")
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(OMP.yellowInk)
+                }
+                Spacer(minLength: 0)
+            }
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text("이렇게 보내보세요")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(OMP.ink2)
+                suggestionChip("닭가슴살 샐러드 먹었어")
+                suggestionChip("하체 운동 50분 했어")
+                suggestionChip("오늘 단백질 얼마나 먹었어?")
+                suggestionChip("남은 칼로리로 저녁 뭐 먹을까?")
+            }
         }
-        .padding(.top, 32)
+        .padding(.top, 8)
+    }
+
+    private func suggestionChip(_ text: String) -> some View {
+        Button {
+            viewModel.draft = text
+            inputFocused = true
+        } label: {
+            HStack(spacing: 8) {
+                Text(text)
+                    .font(.subheadline)
+                    .foregroundStyle(OMP.ink)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.left")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(OMP.ink2)
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+            .background(OMP.sheet, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .stroke(OMP.hairline, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
     }
 
     private var inputBar: some View {
@@ -115,8 +157,8 @@ struct ChatView: View {
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
                     .background(
-                        RoundedRectangle(cornerRadius: 20)
-                            .fill(Color(.systemGray6))
+                        RoundedRectangle(cornerRadius: 20, style: .continuous)
+                            .fill(OMP.inset)
                     )
 
                 Button {
@@ -131,7 +173,11 @@ struct ChatView: View {
             .padding(.horizontal, 16)
             .padding(.bottom, 8)
         }
-        .background(.bar)
+        .padding(.top, 8)
+        .background(OMP.sheet)
+        .overlay(alignment: .top) {
+            Rectangle().fill(OMP.hairline).frame(height: 1)
+        }
     }
 
     private var canSend: Bool {
