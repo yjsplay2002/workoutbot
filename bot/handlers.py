@@ -272,8 +272,8 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "• /plan — 오늘 권장 칼로리·식단 (LLM 생성)\n"
         "• /today — 오늘 요약 미리보기\n"
         "• 매일 <b>오후 9시(KST)</b> 자동 알림:\n"
-        "   – 그룹: 🏆 오늘의 순위표 (회원별 운동·식단·칼로리 달성률·연속일·목표 진행률 랭킹)\n"
-        "   – 개인 DM: 하루 요약·목표 평가\n\n"
+        "   – 개인 DM: 하루 요약·목표 평가\n"
+        "   – 트레이너 DM: 이탈 주의 회원 알림\n\n"
         "<b>⚙️ 설정:</b>\n"
         "• /setweight [kg], /setheight [cm]\n\n"
         "<b>👥 그룹·트레이너 (관리자 전용):</b>\n"
@@ -1917,60 +1917,28 @@ async def cmd_today(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await status_msg.edit_text("❌ 분석 중 오류가 발생했습니다.")
 
 
-def _fmt_scoreboard(board: dict) -> str:
-    """Render the ranked group scoreboard as a Telegram monospace table.
-    Shame/pride ritual — logged-today first, absentees sink to the bottom."""
-    rows = board["rows"]
-    date = board["date"]
-    medals = ["🥇", "🥈", "🥉"]
+async def daily_risk_alert_job(context: ContextTypes.DEFAULT_TYPE) -> None:
+    """JobQueue callback: DM each trainer the drop-off risk queue at 21:00 KST.
 
-    def clip(name: str, n: int = 6) -> str:
-        name = name or "?"
-        return name if len(name) <= n else name[: n - 1] + "…"
-
-    header = f"🏆 <b>오늘의 순위표</b> ({date})\n"
-    if not rows:
-        return header + "\n아직 등록된 회원이 없습니다."
-
-    lines = ["```",
-             "순위 이름    운동 식단 칼로리 🔥연속 목표",
-             "──────────────────────────────────────"]
-    for i, r in enumerate(rows):
-        rank = medals[i] if i < 3 else f"{i+1:>2}."
-        nm = clip(r["name"]).ljust(6)
-        w = "✅" if r["trained"] else "❌"
-        me = "✅" if r["meal_logged"] else "❌"
-        kc = f"{r['kcal_pct']}%" if r["kcal_pct"] is not None else "—"
-        st = f"{r['streak']}일" if r["streak"] else "0"
-        gp = f"{r['goal_pct']}%" if r["goal_pct"] is not None else "—"
-        lines.append(f"{rank} {nm} {w}  {me}  {kc:>5} {st:>4} {gp:>4}")
-    lines.append("```")
-
-    absent = [r["name"] for r in rows if not r["logged_today"]]
-    tail = ""
-    if absent:
-        tail = "\n😴 오늘 미기록: " + ", ".join(absent)
-    return header + "\n".join(lines) + tail
-
-
-async def daily_scoreboard_job(context: ContextTypes.DEFAULT_TYPE) -> None:
-    """JobQueue callback: post the ranked accountability scoreboard to each
-    coach/client group at 21:00 KST. This is the product's core ritual."""
+    The public group scoreboard this job used to post was removed: ranking
+    members against each other in a shared chat is a shame ritual, not a
+    coaching signal (APP_PLAN_V3 principle 3/5 — silence is an intervention
+    trigger handled by a person). The board is still computed, but only to
+    find who has gone quiet.
+    """
     from bot.database import get_scoreboard_chats, get_group_scoreboard
     from zoneinfo import ZoneInfo
     date = datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d")
     chats = get_scoreboard_chats()
-    logger.info(f"Scoreboard job firing for {len(chats)} groups on {date}")
+    logger.info(f"Risk-alert job firing for {len(chats)} groups on {date}")
     for chat_id in chats:
         try:
             board = get_group_scoreboard(chat_id, date)
             if not board["rows"]:
                 continue
-            text = _fmt_scoreboard(board)
-            await context.bot.send_message(chat_id=chat_id, text=text, parse_mode="HTML")
             await _alert_trainers_silent_clients(context, chat_id, board)
         except Exception as e:
-            logger.error(f"Scoreboard failed for chat {chat_id}: {e}")
+            logger.error(f"Risk alert failed for chat {chat_id}: {e}")
 
 
 async def _alert_trainers_silent_clients(context, chat_id: int, board: dict, threshold: int = 3) -> None:
@@ -2002,7 +1970,7 @@ async def _alert_trainers_silent_clients(context, chat_id: int, board: dict, thr
 
 async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     """JobQueue callback: send the personal LLM day-summary at 21:00 KST.
-    Groups get the ranked scoreboard instead (see daily_scoreboard_job); this
+    Trainers get the drop-off risk queue instead (see daily_risk_alert_job); this
     only DMs individual users in private chats to avoid group spam."""
     from bot.database import get_active_users_recent
     from zoneinfo import ZoneInfo
@@ -2013,7 +1981,7 @@ async def daily_summary_job(context: ContextTypes.DEFAULT_TYPE) -> None:
     for u in users:
         user_id = u["user_id"]
         chat_id = u["chat_id"]
-        # Group chats (negative id) get the scoreboard, not the essay.
+        # Group chats (negative id) are never DMed the essay — group push was removed.
         if chat_id < 0:
             continue
         try:

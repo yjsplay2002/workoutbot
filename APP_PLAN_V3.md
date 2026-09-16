@@ -37,6 +37,7 @@
 | InBody 어댑터 | `bot/inbody_api.py` | LookinBody WebAPI 클라이언트 |
 | 채팅 API | `bot/web.py` | `POST /api/v2/chat`(텍스트/사진), `GET /api/v2/chat/history`, `POST /api/v2/inbody/sync` |
 | iOS 채팅 탭 | `ios/.../Chat*` | ChatView(메인 탭), 저장 카드 렌더링, 사진 첨부 |
+| 음성 입력 | `ios/.../SpeechRecorder.swift` | 온디바이스 STT(ko-KR, Apple Speech). 마이크 → 실시간 전사가 입력창에 → 유저 확인 후 전송 → 기존 채팅 파이프라인. 서버 비용 0, 음성 미저장 (2026-09-03) |
 
 사진 입력은 기존 분류·추출 파이프라인(`/api/app/upload` 내부 로직) 재사용 — LLM 루프 없이 저장 후 카드 반환 (비용 절감).
 
@@ -78,4 +79,4 @@
 - 적자 계산: 부분 기록을 하루 전체 섭취로 간주 (database.py:1168)
 - 침묵 감지가 운동∪식단 합집합 — 도메인별 분리 필요
 - 개인 DM 대상이 "최근 7일 활성"만 — 이탈 개입과 역방향 필터 (database.py:1494)
-- 공개 순위표 "shame/pride ritual" (handlers.py:1920) — opt-in으로 강등 예정
+- ~~공개 순위표 "shame/pride ritual"~~ — 2026-08-20 제거. 그룹 푸시는 중단하고, 야간 잡은 트레이너 DM 이탈 알림(`daily_risk_alert_job`)만 남김. 웹 트레이너 페이지의 스코어보드 조회는 유지(푸시가 아닌 열람).
