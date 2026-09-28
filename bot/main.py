@@ -32,7 +32,6 @@ from bot.handlers import (
     cmd_today,
     cmd_unsettrainer,
     daily_summary_job,
-    daily_risk_alert_job,
     handle_photo,
     handle_text,
 )
@@ -107,12 +106,8 @@ def run_bot() -> None:
             time=dt.time(hour=21, minute=0, tzinfo=kst),
             name="daily_summary_21kst",
         )
-        app.job_queue.run_daily(
-            daily_risk_alert_job,
-            time=dt.time(hour=21, minute=0, tzinfo=kst),
-            name="daily_risk_alert_21kst",
-        )
-        logger.info("Daily summary + trainer risk-alert jobs scheduled at 21:00 KST")
+        # Nightly trainer risk-alert push (daily_risk_alert_job) disabled by request.
+        logger.info("Daily summary job scheduled at 21:00 KST")
     else:
         logger.warning("JobQueue not available — daily summary disabled")
 
